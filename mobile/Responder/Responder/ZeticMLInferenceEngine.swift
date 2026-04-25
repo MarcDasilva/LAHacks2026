@@ -419,13 +419,21 @@ final class ZeticMLInferenceEngine: MLInferenceEngine {
     }
 
     private func tensorToFloatArray(_ tensor: Tensor) -> [Float] {
-        tensor.data.withUnsafeBytes { rawBuffer -> [Float] in
-            let count = tensor.data.count / MemoryLayout<Float>.size
-            guard let base = rawBuffer.bindMemory(to: Float.self).baseAddress, count > 0 else {
-                return []
+        let byteCount = tensor.data.count
+        let stride = MemoryLayout<Float>.size
+        let count = byteCount / stride
+        guard count > 0 else { return [] }
+
+        var floats = Array(repeating: Float(0), count: count)
+        tensor.data.withUnsafeBytes { rawBuffer in
+            guard let base = rawBuffer.baseAddress else { return }
+            for index in 0..<count {
+                let offset = index * stride
+                let bits = base.loadUnaligned(fromByteOffset: offset, as: UInt32.self)
+                floats[index] = Float(bitPattern: UInt32(littleEndian: bits))
             }
-            return Array(UnsafeBufferPointer(start: base, count: count))
         }
+        return floats
     }
 
     private func label(for classID: Int) -> String {

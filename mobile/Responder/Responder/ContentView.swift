@@ -12,10 +12,14 @@ final class CameraViewModel: NSObject, ObservableObject {
     @Published private(set) var lastInferenceError: String?
     @Published var speakTranscript = true
     @Published private(set) var sttOnHold = false
+    @Published private(set) var frameStreamStatus = "idle"
+    @Published private(set) var streamedFrameCount = 0
 
     let captureService = CameraCaptureService()
+    let frameStreamSettings = FrameStreamSettings.fromEnvironment()
     private var transcriptPipeline: ChunkedTranscriptPipeline!
     private let speechPlayer = SpeechPlaybackService()
+    nonisolated(unsafe) private var frameStreamClient: FrameStreamClient!
 
     override init() {
         let inference = InferenceEngineFactory.makeEngine()
@@ -46,6 +50,15 @@ final class CameraViewModel: NSObject, ObservableObject {
                 }
             }
         )
+        self.frameStreamClient = FrameStreamClient(
+            settings: frameStreamSettings,
+            stateHandler: { [weak self] status in
+                self?.frameStreamStatus = status
+            },
+            frameSentHandler: { [weak self] in
+                self?.streamedFrameCount += 1
+            }
+        )
         captureService.delegate = self
     }
 
@@ -58,16 +71,19 @@ final class CameraViewModel: NSObject, ObservableObject {
             }
             permissionDenied = false
             captureService.startRunning()
+            frameStreamClient.start()
         }
     }
 
     func stopCamera() {
         captureService.stopRunning()
+        frameStreamClient.stop()
     }
 }
 
 extension CameraViewModel: CameraCaptureServiceDelegate {
     nonisolated func cameraCaptureService(_ service: CameraCaptureService, didOutputVideo sampleBuffer: CMSampleBuffer) {
+        frameStreamClient.sendVideoSampleBuffer(sampleBuffer)
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -173,10 +189,15 @@ struct ContentView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("Frames received: \(viewModel.capturedFrameCount)")
+                Text("Frames streamed: \(viewModel.streamedFrameCount)")
                 Text("Audio buffers received: \(viewModel.capturedAudioBufferCount)")
                 Text(lastFrameLabel)
                     .foregroundStyle(.secondary)
                 Text("Inference model: \(viewModel.inferenceModelName)")
+                    .foregroundStyle(.secondary)
+                Text("Frame stream status: \(viewModel.frameStreamStatus)")
+                    .foregroundStyle(.secondary)
+                Text("Frame stream server: \(viewModel.frameStreamSettings.wsURLString)")
                     .foregroundStyle(.secondary)
                 if viewModel.sttOnHold {
                     Text("STT status: On Hold")
