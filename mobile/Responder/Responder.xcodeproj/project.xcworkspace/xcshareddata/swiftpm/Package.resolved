@@ -6,8 +6,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/zetic-ai/ZeticMLangeiOS.git",
       "state" : {
-        "revision" : "6070b1846a63abaa240a8a1dd409beea668cbefd",
-        "version" : "1.6.0"
+        "revision" : "73be12abd9bfce1a9f6a07e9e5c74c8547e42fa9",
+        "version" : "1.7.0-beta.1"
       }
     }
   ],

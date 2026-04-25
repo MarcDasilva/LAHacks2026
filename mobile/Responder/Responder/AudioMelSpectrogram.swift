@@ -1,6 +1,11 @@
 import Foundation
 
 struct AudioMelSpectrogram {
+    struct MelChunk {
+        let values: [Float]
+        let validFrameCount: Int
+    }
+
     private let sampleRate = 16_000
     private let fftSize = 400
     private let hopSize = 160
@@ -10,6 +15,10 @@ struct AudioMelSpectrogram {
     private let melFilterCols = 201
 
     func makeMelChunks(from pcm16kMono: [Float]) -> [[Float]] {
+        makeMelChunksWithMetadata(from: pcm16kMono).map(\.values)
+    }
+
+    func makeMelChunksWithMetadata(from pcm16kMono: [Float]) -> [MelChunk] {
         guard !pcm16kMono.isEmpty else { return [] }
         let frames = stftPowerFrames(samples: pcm16kMono)
         guard !frames.isEmpty else { return [] }
@@ -31,7 +40,7 @@ struct AudioMelSpectrogram {
             melFrames.append(normalizeLogMel(mel))
         }
 
-        var chunks = [[Float]]()
+        var chunks = [MelChunk]()
         var start = 0
         while start < melFrames.count {
             let end = min(start + framesPerChunk, melFrames.count)
@@ -43,7 +52,7 @@ struct AudioMelSpectrogram {
                     chunk[melIdx * framesPerChunk + frameIdx] = frame[melIdx]
                 }
             }
-            chunks.append(chunk)
+            chunks.append(MelChunk(values: chunk, validFrameCount: span))
             start += framesPerChunk
         }
         return chunks
