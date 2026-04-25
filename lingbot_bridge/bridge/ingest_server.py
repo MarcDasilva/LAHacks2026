@@ -115,11 +115,12 @@ def list_sessions() -> list[dict]:
 @app.get("/sessions/{session_id}/cloud")
 def get_cloud(
     session_id: str,
-    points: int = 150_000,
-    conf: float = 0.5,
-    mad: float = 6.0,
+    conf: float = 1.0,
+    downsample: int = 10,
 ) -> Response:
-    """Binary point cloud for browser rendering. See cloud_export for format."""
+    """Binary point cloud for browser rendering — mirrors upstream defaults
+    (vis_threshold=1.0, downsample_factor=10). See cloud_export for format.
+    """
     _validate_session_id(session_id)
     state = sessions.load(session_id)
     if state is None:
@@ -130,9 +131,8 @@ def get_cloud(
     try:
         blob = cloud_export.get_or_build_cloud(
             config.session_output_dir(session_id),
-            target_points=points,
             conf_threshold=conf,
-            mad_factor=mad,
+            downsample=downsample,
         )
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))

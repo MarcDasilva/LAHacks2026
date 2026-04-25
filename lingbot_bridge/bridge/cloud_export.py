@@ -1,24 +1,28 @@
-"""Export a downsampled, colored point cloud from a session's predictions.pt.
+"""Export a colored point cloud from a session — 1:1 match of the upstream
+lingbot_map viser viewer pipeline.
 
-predictions.pt is ~1 GB of dense per-pixel tensors. The browser viewer
-only needs ~100k points with color, so we:
-  1. filter by confidence
-  2. drop 3D outliers using median-absolute-deviation (robust to corner
-     outliers that per-axis percentile trim misses)
-  3. random downsample to target_points
-  4. assign each point a color from a viridis-like ramp keyed off the Y
-     (height) axis — gives the viewer visible structure even with no
-     image-derived RGB
+Mirrors `lingbot_map/vis/point_cloud_viewer.py::parse_pc_data`:
 
-The downsampled binary is cached at outputs/<session>/cloud.<key>.bin so
-subsequent requests don't pay the torch.load cost.
+    For each frame i in 0..N-1:
+        pts   = world_points[i].reshape(-1, 3)        # (H*W, 3)
+        col   = images[i].permute(H, W, C).reshape(-1, 3)  # RGB float [0,1]
+        conf  = world_points_conf[i].reshape(-1)
+        pts, col, conf = pts[isfinite(pts)]            # NaN/Inf strip
+        if any(isnan(col)): col = blue                 # upstream fallback
+        keep  = conf > vis_threshold                   # default 1.0
+        pts, col = pts[keep], col[keep]
+        if downsample > 1: every Nth point             # default stride 10
 
-File format (little-endian, version 2):
+    Concatenate across frames → render.
+
+Outputs the v2 binary format:
     [0:4]   uint32  magic   = 0x4c424d50  ("LBMP")
     [4:8]   uint32  version = 2
     [8:12]  uint32  num_points
     [12:16] uint32  stride_bytes (24 = xyz fp32 + rgb fp32)
     [16:N]  Float32Array of length num_points * 6  (interleaved x,y,z,r,g,b)
+
+The dashboard `PointCloudViewer.tsx` reads this directly.
 """
 from __future__ import annotations
 
@@ -32,111 +36,125 @@ log = logging.getLogger("cloud_export")
 MAGIC: Final = 0x4C424D50
 VERSION: Final = 2
 HEADER_SIZE: Final = 16
-STRIDE_BYTES: Final = 24  # xyz + rgb, all fp32
-
-
-def _viridis(t):
-    """Cheap viridis-ish ramp: t in [0,1] → (r,g,b) in [0,1]. Vectorized."""
-    import numpy as np
-
-    t = np.clip(t, 0.0, 1.0)
-    # 4-stop gradient: dark purple → teal → green → yellow.
-    stops = np.array(
-        [
-            [0.267, 0.005, 0.329],
-            [0.190, 0.408, 0.557],
-            [0.208, 0.718, 0.473],
-            [0.992, 0.906, 0.144],
-        ]
-    )
-    n = len(stops) - 1
-    pos = t * n
-    i = np.clip(pos.astype(np.int32), 0, n - 1)
-    f = (pos - i).reshape(-1, 1)
-    return stops[i] * (1 - f) + stops[i + 1] * f
+STRIDE_BYTES: Final = 24
 
 
 def export_cloud(
     predictions_path: Path,
-    target_points: int = 150_000,
-    conf_threshold: float = 0.5,
-    mad_factor: float = 6.0,
+    images_path: Path,
+    conf_threshold: float = 1.0,
+    downsample: int = 10,
 ) -> bytes:
-    """Load predictions.pt → confidence + MAD outlier filter → color → pack."""
+    """Mirror of lingbot_map.vis.point_cloud_viewer.parse_pc_data, packed as bytes."""
     import numpy as np
     import torch
 
     log.info("loading %s", predictions_path)
     preds = torch.load(predictions_path, map_location="cpu", weights_only=False)
+    log.info("loading %s", images_path)
+    images_t = torch.load(images_path, map_location="cpu", weights_only=False)
 
-    world_points = preds["world_points"]  # (N, H, W, 3) or (M, 3)
-    conf = preds.get("world_points_conf")
+    world_points = preds["world_points"]      # (N, H, W, 3)
+    conf_all = preds["world_points_conf"]     # (N, H, W)
 
-    pts = world_points.reshape(-1, 3).numpy().astype(np.float32, copy=False)
-    initial = len(pts)
+    # Upstream: images are (N, 3, H, W) float in [0, 1] RGB. Permute to HWC.
+    if images_t.ndim != 4 or images_t.shape[1] != 3:
+        raise ValueError(f"images.pt has unexpected shape {tuple(images_t.shape)}")
+    colors_all = images_t.permute(0, 2, 3, 1).contiguous()  # (N, H, W, 3)
 
-    if conf is not None:
-        c = conf.reshape(-1).numpy()
-        pts = pts[c > conf_threshold]
-        log.info("after conf>%.2f: %d / %d", conf_threshold, len(pts), initial)
+    n_frames = world_points.shape[0]
+    if colors_all.shape[0] != n_frames or conf_all.shape[0] != n_frames:
+        raise ValueError(
+            f"frame-count mismatch: world_points={n_frames}, "
+            f"images={colors_all.shape[0]}, conf={conf_all.shape[0]}"
+        )
 
-    # Robust 3D outlier rejection: drop points more than `mad_factor` MADs
-    # from the per-axis median. MAD is robust to the long-tail noise points
-    # that lingbot-map's depth head produces in low-texture regions.
-    if mad_factor > 0 and len(pts) > 1000:
-        med = np.median(pts, axis=0)
-        mad = np.median(np.abs(pts - med), axis=0) + 1e-6
-        before = len(pts)
-        keep = np.all(np.abs(pts - med) < mad_factor * mad, axis=1)
-        pts = pts[keep]
-        log.info("after %.1f-MAD trim: %d / %d", mad_factor, len(pts), before)
+    xyz_chunks: list = []
+    rgb_chunks: list = []
+    total_initial = 0
+    total_kept = 0
 
-    if len(pts) == 0:
-        log.warning("no points survived filtering — relax thresholds")
-        header = struct.pack("<IIII", MAGIC, VERSION, 0, STRIDE_BYTES)
-        return header
+    for i in range(n_frames):
+        pts = world_points[i].reshape(-1, 3).numpy()
+        col = colors_all[i].reshape(-1, 3).numpy()
+        c = conf_all[i].reshape(-1).numpy()
+        total_initial += len(pts)
 
-    if len(pts) > target_points:
-        idx = np.random.default_rng(seed=0).choice(len(pts), target_points, replace=False)
-        pts = pts[idx]
+        # Drop NaN/Inf points (upstream parse_pc_data step).
+        valid = np.isfinite(pts).all(axis=1)
+        if not valid.all():
+            pts = pts[valid]
+            col = col[valid]
+            c = c[valid]
 
-    # Color by height (Y axis) using a viridis-ish ramp. Visible structure
-    # without needing per-pixel image colors.
-    y = pts[:, 1]
-    y_norm = (y - y.min()) / max(y.max() - y.min(), 1e-6)
-    rgb = _viridis(y_norm).astype(np.float32, copy=False)
+        # NaN colors → blue (upstream fallback).
+        if np.isnan(col).any():
+            col = np.zeros_like(col)
+            col[:, 2] = 1.0
 
-    interleaved = np.concatenate([pts, rgb], axis=1).astype(np.float32, copy=False)
-    interleaved = np.ascontiguousarray(interleaved)
+        # Confidence filter — strict `>`, matches upstream.
+        mask = c > conf_threshold
+        pts = pts[mask]
+        col = col[mask]
+
+        # Stride downsample — keep every Nth point (upstream default 10).
+        if downsample > 1 and len(pts) > 0:
+            idx = np.arange(0, len(pts), downsample)
+            pts = pts[idx]
+            col = col[idx]
+
+        if len(pts) > 0:
+            xyz_chunks.append(pts.astype(np.float32, copy=False))
+            rgb_chunks.append(col.astype(np.float32, copy=False))
+            total_kept += len(pts)
+
+    log.info(
+        "frames=%d, initial=%d, kept=%d (conf>%.2f, stride=%d)",
+        n_frames, total_initial, total_kept, conf_threshold, downsample,
+    )
+
+    if total_kept == 0:
+        log.warning("no points survived filtering — relax conf_threshold or downsample")
+        return struct.pack("<IIII", MAGIC, VERSION, 0, STRIDE_BYTES)
+
+    xyz = np.concatenate(xyz_chunks, axis=0)
+    rgb = np.concatenate(rgb_chunks, axis=0)
+    interleaved = np.ascontiguousarray(
+        np.concatenate([xyz, rgb], axis=1).astype(np.float32, copy=False)
+    )
     n = len(interleaved)
-    log.info("exporting %d points (xyz+rgb fp32)", n)
-
     header = struct.pack("<IIII", MAGIC, VERSION, n, STRIDE_BYTES)
     return header + interleaved.tobytes()
 
 
 def get_or_build_cloud(
     session_output_dir: Path,
-    target_points: int = 150_000,
-    conf_threshold: float = 0.5,
-    mad_factor: float = 6.0,
+    conf_threshold: float = 1.0,
+    downsample: int = 10,
 ) -> bytes:
     """Return cached cloud.<key>.bin if present, else build + cache."""
-    suffix = f"v{VERSION}_p{target_points}_c{conf_threshold:.2f}_m{mad_factor:.1f}"
+    suffix = f"v{VERSION}_c{conf_threshold:.2f}_d{downsample}"
     cache = session_output_dir / f"cloud.{suffix}.bin"
     preds = session_output_dir / "predictions.pt"
+    images = session_output_dir / "images.pt"
 
-    if cache.exists() and cache.stat().st_mtime >= preds.stat().st_mtime:
-        return cache.read_bytes()
+    if cache.exists():
+        cache_mtime = cache.stat().st_mtime
+        if (
+            cache_mtime >= preds.stat().st_mtime
+            and (not images.exists() or cache_mtime >= images.stat().st_mtime)
+        ):
+            return cache.read_bytes()
 
     if not preds.exists():
         raise FileNotFoundError(f"no predictions.pt at {preds}")
+    if not images.exists():
+        raise FileNotFoundError(
+            f"no images.pt at {images} — re-run inference with the updated patch_demo.py"
+        )
 
     blob = export_cloud(
-        preds,
-        target_points=target_points,
-        conf_threshold=conf_threshold,
-        mad_factor=mad_factor,
+        preds, images, conf_threshold=conf_threshold, downsample=downsample,
     )
     cache.write_bytes(blob)
     return blob
