@@ -77,7 +77,7 @@ function Panel({ children, className = "" }: { children: React.ReactNode; classN
 }
 
 function RenderPanel() {
-  return <PointCloudViewer bridgeUrl={BRIDGE_URL} sessionId={DEMO_SESSION} />;
+  return <PointCloudViewer bridgeUrl={BRIDGE_URL} sessionId={DEMO_SESSION} conf={2.0} downsample={5} />;
 }
 
 function VideoChunk({ index }: { index: number }) {

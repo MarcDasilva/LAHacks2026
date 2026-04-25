@@ -138,3 +138,23 @@ def get_cloud(
         raise HTTPException(404, str(e))
 
     return Response(content=blob, media_type="application/octet-stream")
+
+
+@app.get("/sessions/{session_id}/frustums")
+def get_frustums(session_id: str) -> Response:
+    """Binary camera-pose blob for rendering frustum pyramids alongside the
+    point cloud. See cloud_export.export_frustums for format.
+    """
+    _validate_session_id(session_id)
+    state = sessions.load(session_id)
+    if state is None:
+        raise HTTPException(404, "no such session")
+    if state.status != "done":
+        raise HTTPException(409, f"session is {state.status}, not done")
+    try:
+        blob = cloud_export.get_or_build_frustums(
+            config.session_output_dir(session_id),
+        )
+    except (FileNotFoundError, ValueError) as e:
+        raise HTTPException(404, str(e))
+    return Response(content=blob, media_type="application/octet-stream")
