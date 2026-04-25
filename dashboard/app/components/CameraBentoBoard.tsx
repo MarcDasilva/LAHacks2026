@@ -24,13 +24,13 @@ export default function CameraBentoBoard({ rooms }: CameraBentoBoardProps) {
 
   return (
     <div className="relative h-full w-full p-2">
-      <div className="absolute right-3 top-3 z-20 flex items-center gap-1 rounded-[10px] bg-black/45 p-1 backdrop-blur-sm">
+      <div className="absolute right-3 top-3 z-20 flex items-center gap-1 bg-black/45 p-1 backdrop-blur-sm">
         <ModeButton label="Single" active={mode === "single"} onClick={() => setMode("single")} />
         <ModeButton label="Bento" active={mode === "bento"} onClick={() => setMode("bento")} />
       </div>
 
       {mode === "single" ? (
-        <div className="h-full w-full rounded-[12px] overflow-hidden border border-[var(--border)]/80 relative">
+        <div className="h-full w-full overflow-hidden border border-[var(--border)]/80 relative">
           <CameraFrameViewer roomId={primaryRoom} />
           <FeedBadge roomId={primaryRoom} />
         </div>
@@ -44,7 +44,7 @@ export default function CameraBentoBoard({ rooms }: CameraBentoBoardProps) {
               <button
                 key={roomId}
                 onClick={() => setPrimaryRoom(roomId)}
-                className="relative w-full overflow-hidden rounded-[12px] border border-[var(--border)]/80 text-left aspect-video shrink-0"
+                className="relative w-full overflow-hidden border border-[var(--border)]/80 text-left aspect-video shrink-0"
                 title={`Focus ${roomId}`}
                 type="button"
               >
@@ -84,7 +84,7 @@ function ModeButton({
   return (
     <button
       onClick={onClick}
-      className={`rounded-[8px] px-2.5 py-1 text-[10px] uppercase tracking-wider font-semibold font-mono transition-colors ${
+      className={`px-2.5 py-1 text-[10px] uppercase tracking-wider font-semibold font-mono transition-colors ${
         active
           ? "bg-white/35 text-black/85"
           : "bg-transparent text-white/70 hover:text-white hover:bg-white/10"
@@ -98,7 +98,7 @@ function ModeButton({
 
 function FeedBadge({ roomId, highlighted = false }: { roomId: string; highlighted?: boolean }) {
   return (
-    <div className={`absolute left-2 top-2 z-20 rounded-[8px] px-2 py-1 text-[10px] font-mono uppercase tracking-widest backdrop-blur-sm ${
+    <div className={`absolute left-2 top-2 z-20 px-2 py-1 text-[10px] font-mono uppercase tracking-widest backdrop-blur-sm ${
       highlighted ? "bg-white/35 text-black/85" : "bg-black/45 text-white/70"
     }`}>
       {roomId}

@@ -254,7 +254,7 @@ export function PointCloudViewer({
   }, [url, bridgeUrl, sessionId, pointSizeFactor]);
 
   return (
-    <div ref={containerRef} className="absolute inset-0 rounded-[14px] overflow-hidden">
+    <div ref={containerRef} className="absolute inset-0 overflow-hidden">
       <div className="absolute bottom-3 right-3 z-10 text-[10px] text-[var(--muted-foreground)] font-mono">
         {status === "loading" && "loading…"}
         {status === "ready" && `${pointCount.toLocaleString()} pts · drag · scroll`}
