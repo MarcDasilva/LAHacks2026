@@ -1,5 +1,5 @@
-import AlertsClient from "./components/AlertsClient";
+import AlertsWrapper from "./components/AlertsWrapper";
 
 export default function AlertsPage() {
-  return <AlertsClient />;
+  return <AlertsWrapper />;
 }
