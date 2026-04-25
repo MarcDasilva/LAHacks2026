@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const MAGIC = 0x4c424d50; // "LBMP" — must match bridge/cloud_export.py
 
@@ -22,17 +22,18 @@ export function PointCloudViewer({
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [pointCount, setPointCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const resolvedUrl = useMemo(() => {
+    if (url) return url;
+    if (bridgeUrl && sessionId) {
+      return `${bridgeUrl.replace(/\/$/, "")}/sessions/${sessionId}/cloud`;
+    }
+    return null;
+  }, [url, bridgeUrl, sessionId]);
+  const effectiveStatus = resolvedUrl ? status : "error";
+  const effectiveError = resolvedUrl ? error : "no url";
 
   useEffect(() => {
-    let resolvedUrl = url;
-    if (!resolvedUrl && bridgeUrl && sessionId) {
-      resolvedUrl = `${bridgeUrl.replace(/\/$/, "")}/sessions/${sessionId}/cloud`;
-    }
-    if (!resolvedUrl) {
-      setStatus("error");
-      setError("no url");
-      return;
-    }
+    if (!resolvedUrl) return;
     if (!containerRef.current) return;
 
     let disposed = false;
@@ -251,14 +252,14 @@ export function PointCloudViewer({
       disposed = true;
       cleanup?.();
     };
-  }, [url, bridgeUrl, sessionId, pointSizeFactor]);
+  }, [resolvedUrl, pointSizeFactor]);
 
   return (
     <div ref={containerRef} className="absolute inset-0 overflow-hidden">
-      <div className="absolute bottom-3 right-3 z-10 text-[10px] text-[var(--muted-foreground)] font-display">
-        {status === "loading" && "loading…"}
-        {status === "ready" && `${pointCount.toLocaleString()} pts · drag · scroll`}
-        {status === "error" && `error: ${error ?? "unknown"}`}
+      <div className="absolute bottom-3 right-3 z-10 rounded-[10px] border border-black/15 bg-white/55 px-2.5 py-1 text-[10px] font-display text-[var(--muted-foreground)] backdrop-blur-md">
+        {effectiveStatus === "loading" && "loading..."}
+        {effectiveStatus === "ready" && `${pointCount.toLocaleString()} pts · drag · scroll`}
+        {effectiveStatus === "error" && `error: ${effectiveError ?? "unknown"}`}
       </div>
     </div>
   );
