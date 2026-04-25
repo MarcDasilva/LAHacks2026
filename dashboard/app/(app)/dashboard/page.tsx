@@ -1,4 +1,4 @@
-import CameraFrameViewer from "@/app/components/CameraFrameViewer";
+import CameraBentoBoard from "@/app/components/CameraBentoBoard";
 
 export default function Dashboard() {
   return (
@@ -17,7 +17,7 @@ export default function Dashboard() {
           {/* ── Left: live body cam feed ── */}
           <Panel className="row-span-full flex flex-col min-h-0">
             <div className="flex-1 overflow-hidden relative min-h-0 rounded-[14px]">
-              <CameraFrameViewer roomId="main-camera" />
+              <CameraBentoBoard />
             </div>
           </Panel>
 

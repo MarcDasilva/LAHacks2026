@@ -79,6 +79,15 @@ final class CameraViewModel: NSObject, ObservableObject {
         captureService.stopRunning()
         frameStreamClient.stop()
     }
+
+    func setSTTEnabled(_ enabled: Bool) {
+        sttOnHold = !enabled
+        if sttOnHold {
+            latestTranscript = "STT is currently on hold."
+        } else if latestTranscript == "STT is currently on hold." {
+            latestTranscript = "Waiting for transcript..."
+        }
+    }
 }
 
 extension CameraViewModel: CameraCaptureServiceDelegate {
@@ -207,6 +216,11 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Toggle("Speak transcript (TTS)", isOn: $viewModel.speakTranscript)
+            Button(viewModel.sttOnHold ? "Enable STT" : "Pause STT") {
+                viewModel.setSTTEnabled(viewModel.sttOnHold)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(viewModel.sttOnHold ? .green : .orange)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Latest transcript:")
