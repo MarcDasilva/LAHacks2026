@@ -10,6 +10,9 @@ packages:
   ZeticMLangeiOS:
     url: https://github.com/zetic-ai/ZeticMLangeiOS.git
     exactVersion: 1.7.0-beta.1
+  WebRTC:
+    url: https://github.com/stasel/WebRTC.git
+    branch: latest
 targets:
   Responder:
     type: application
@@ -39,6 +42,8 @@ targets:
     dependencies:
       - package: ZeticMLangeiOS
         product: ZeticMLange
+      - package: WebRTC
+        product: WebRTC
     scheme:
       testTargets:
         - ResponderTests
