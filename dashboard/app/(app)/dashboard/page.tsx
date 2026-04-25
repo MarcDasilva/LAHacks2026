@@ -11,13 +11,25 @@ const BRIDGE_URL = process.env.NEXT_PUBLIC_BRIDGE_URL ?? "/bridge";
 const VISER_URL = process.env.NEXT_PUBLIC_VISER_URL ?? "";
 const USE_VISER = process.env.NEXT_PUBLIC_USE_VISER === "1" && VISER_URL !== "";
 
-const DEMOS: Array<{ id: string; label: string }> = [
-  { id: "church", label: "Church" },
-  { id: "oxford", label: "Oxford" },
+type Mode = "stream" | "church" | "oxford";
+
+const MODES: Array<{ id: Mode; label: string; videoSrc?: string }> = [
+  { id: "stream", label: "Stream" },
+  { id: "church", label: "Church", videoSrc: "/demos/church.mp4" },
+  { id: "oxford", label: "Oxford", videoSrc: "/demos/oxford.mp4" },
 ];
 
 export default function Dashboard() {
-  const [sessionId, setSessionId] = useState(DEMOS[0].id);
+  const [mode, setMode] = useState<Mode>("stream");
+  const [streamSessionId, setStreamSessionId] = useState<string>("");
+
+  const sessionId = mode === "stream" ? streamSessionId : mode;
+  const videoSrc = MODES.find(m => m.id === mode)?.videoSrc;
+
+  const handleStreamSessionChange = (sid: string) => {
+    setMode("stream");
+    setStreamSessionId(sid);
+  };
 
   return (
     <div className="relative h-full w-full overflow-hidden">
@@ -32,10 +44,14 @@ export default function Dashboard() {
       <main className="relative z-10 h-full w-full p-3 flex items-start justify-center overflow-hidden">
         <div className="w-full h-full grid grid-cols-[1fr_2fr] gap-2">
 
-          {/* ── Left: live body cam feed ── */}
+          {/* ── Left: live body cam feed OR demo video ── */}
           <Panel className="row-span-full flex flex-col min-h-0">
             <div className="flex-1 overflow-hidden relative min-h-0 rounded-[14px]">
-              <CameraBentoBoard />
+              {mode === "stream" ? (
+                <CameraBentoBoard />
+              ) : (
+                <DemoVideo key={mode} src={videoSrc!} label={mode} />
+              )}
             </div>
           </Panel>
 
@@ -45,7 +61,12 @@ export default function Dashboard() {
             {/* Top: 3D splatting render */}
             <Panel className="flex flex-col min-h-0">
               <div className="flex-1 overflow-hidden relative min-h-0 rounded-[14px]">
-                <RenderPanel sessionId={sessionId} setSessionId={setSessionId} />
+                <RenderPanel
+                  mode={mode}
+                  setMode={setMode}
+                  sessionId={sessionId}
+                  onStreamSessionChange={handleStreamSessionChange}
+                />
               </div>
             </Panel>
 
@@ -89,47 +110,82 @@ function Panel({ children, className = "" }: { children: React.ReactNode; classN
   );
 }
 
-function RenderPanel({ sessionId, setSessionId }: { sessionId: string; setSessionId: (sid: string) => void }) {
+function RenderPanel({
+  mode,
+  setMode,
+  sessionId,
+  onStreamSessionChange,
+}: {
+  mode: Mode;
+  setMode: (m: Mode) => void;
+  sessionId: string;
+  onStreamSessionChange: (sid: string) => void;
+}) {
+  const hasSession = sessionId.length > 0;
   return (
     <div className="relative h-full w-full">
-      {/* `key` forces a clean remount whenever the session changes */}
-      {USE_VISER ? (
-        <ViserEmbed key={sessionId} viserUrl={VISER_URL} sessionId={sessionId} />
+      {hasSession ? (
+        // `key` forces a clean remount whenever the session changes
+        USE_VISER ? (
+          <ViserEmbed key={sessionId} viserUrl={VISER_URL} sessionId={sessionId} />
+        ) : (
+          <PointCloudViewer
+            key={sessionId}
+            bridgeUrl={BRIDGE_URL}
+            sessionId={sessionId}
+            conf={2.0}
+            downsample={5}
+          />
+        )
       ) : (
-        <PointCloudViewer
-          key={sessionId}
-          bridgeUrl={BRIDGE_URL}
-          sessionId={sessionId}
-          conf={2.0}
-          downsample={5}
-        />
+        <div className="absolute inset-0 flex items-center justify-center text-xs text-[var(--muted-foreground)] font-mono">
+          waiting for stream — upload a clip or pick a session
+        </div>
       )}
       <div className="absolute top-3 left-3 z-10 flex items-center gap-2">
         <div className="flex gap-1 bg-[var(--muted)] rounded-[8px] p-1">
-          {DEMOS.map(d => {
-            const active = sessionId === d.id;
+          {MODES.map(m => {
+            const active = mode === m.id;
             return (
               <button
-                key={d.id}
-                onClick={() => setSessionId(d.id)}
+                key={m.id}
+                onClick={() => setMode(m.id)}
                 className={`px-3 py-1 text-xs font-mono rounded-[6px] transition-colors ${
                   active
                     ? "bg-[var(--foreground)] text-[var(--background)]"
                     : "text-[var(--foreground)] hover:bg-[var(--border)]"
                 }`}
               >
-                {d.label}
+                {m.label}
               </button>
             );
           })}
         </div>
-        <UploadButton bridgeUrl={BRIDGE_URL} onReady={setSessionId} />
+        <UploadButton bridgeUrl={BRIDGE_URL} onReady={onStreamSessionChange} />
         <SessionSwitcher
           bridgeUrl={BRIDGE_URL}
           current={sessionId}
-          onSelect={setSessionId}
-          alwaysInclude={DEMOS[0].id}
+          onSelect={onStreamSessionChange}
         />
+      </div>
+    </div>
+  );
+}
+
+function DemoVideo({ src, label }: { src: string; label: string }) {
+  return (
+    <div className="relative h-full w-full bg-black">
+      <video
+        className="absolute inset-0 h-full w-full object-cover"
+        src={src}
+        autoPlay
+        loop
+        muted
+        controls
+        playsInline
+      />
+      <div className="absolute left-3 top-3 z-10 rounded-[8px] bg-black/45 px-2 py-1 text-[10px] font-mono uppercase tracking-widest text-white/90 backdrop-blur-sm">
+        {label}
       </div>
     </div>
   );
