@@ -24,6 +24,11 @@
 	<string>Responder needs microphone access to capture audio for live transcription inference.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Responder uses speech recognition to provide fallback transcription when cloud model loading fails.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
