@@ -35,9 +35,9 @@ export default function Dashboard() {
                 <input
                   type="text"
                   placeholder="Describe what you're looking for..."
-                  className="flex-1 bg-[var(--muted)] border border-[var(--border)] rounded-[8px] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)] transition-all"
+                  className="flex-1 bg-[var(--muted)] rounded-[8px] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)] transition-all"
                 />
-                <button className="px-5 py-2 bg-[var(--muted)] border border-[var(--border)] text-[var(--foreground)] text-sm font-semibold rounded-[8px] hover:bg-[var(--border)] transition-colors">
+                <button className="px-5 py-2 bg-[var(--muted)] text-[var(--foreground)] text-sm font-semibold rounded-[8px] hover:bg-[var(--border)] transition-colors">
                   Query
                 </button>
               </div>
@@ -63,7 +63,7 @@ export default function Dashboard() {
 
 function Panel({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={`bg-[var(--card)] border border-[var(--border)] rounded-[16px] overflow-hidden shadow-[0_4px_24px_-4px_rgba(0,0,0,0.3)] ${className}`}>
+    <div className={`bg-[var(--card)] rounded-[16px] overflow-hidden shadow-[0_4px_24px_-4px_rgba(0,0,0,0.3)] ${className}`}>
       {children}
     </div>
   );
@@ -82,12 +82,11 @@ function PanelHeader({ children }: { children: React.ReactNode }) {
 function StreamPanel() {
   const ready = false; // swap to true when stream is connected
   if (!ready) return (
-    <div className="absolute inset-0 border border-[var(--border)] rounded-[14px] flex flex-col items-end justify-end p-3 gap-1">
+    <div className="absolute inset-0 rounded-[14px] flex flex-col items-end justify-end p-3 gap-1">
       <div className="flex items-center gap-1.5">
         <span className="w-1.5 h-1.5 rounded-full bg-[oklch(0.78_0.09_15)] animate-pulse" />
         <span className="text-[10px] text-[var(--muted-foreground)] font-mono uppercase tracking-widest">live</span>
       </div>
-      <span className="text-[10px] text-[var(--muted-foreground)] font-mono">cam_01</span>
     </div>
   );
   return null; // replace with <video> when ready
@@ -96,7 +95,7 @@ function StreamPanel() {
 function RenderPanel() {
   const ready = false; // swap to true when splat data arrives
   if (!ready) return (
-    <div className="absolute inset-0 border border-[var(--border)] rounded-[14px] flex items-end justify-end p-3">
+    <div className="absolute inset-0 rounded-[14px] flex items-end justify-end p-3">
       <span className="text-[10px] text-[var(--muted-foreground)] font-mono">no data</span>
     </div>
   );
@@ -105,7 +104,7 @@ function RenderPanel() {
 
 function VideoChunk({ index }: { index: number }) {
   return (
-    <div className="shrink-0 w-36 h-full border border-[var(--border)] rounded-[12px] flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:border-[var(--lavender)]/40 transition-all">
+    <div className="shrink-0 w-36 h-full bg-[var(--hero)] rounded-[12px] flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:brightness-110 transition-all">
       <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4 text-[var(--muted-foreground)]">
         <polygon points="5,3 19,12 5,21" fill="currentColor" />
       </svg>

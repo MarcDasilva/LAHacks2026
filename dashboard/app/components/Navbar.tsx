@@ -1,10 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { LayoutDashboard, Bell, BarChart2, FileText } from "lucide-react";
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
-  { icon: Bell,            label: "Alerts",    href: "/" },
+  { icon: Bell,            label: "Alerts",    href: "/alerts" },
   { icon: BarChart2,       label: "Analytics", href: "#" },
   { icon: FileText,        label: "Reports",   href: "#" },
 ];
@@ -14,10 +15,10 @@ export default function Navbar() {
     <>
       {/* Top bar */}
       <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 h-[57px] bg-[var(--background)]/80 backdrop-blur-xl border-b border-[var(--border)]">
-        <span className="text-[var(--foreground)] font-bold text-sm tracking-[-0.01em] uppercase">
+        <Link href="/" className="text-[var(--foreground)] font-bold text-2xl tracking-[-0.01em] uppercase hover:opacity-80 transition-opacity">
           Vigil
-        </span>
-        <button className="w-8 h-8 rounded-[8px] bg-[var(--muted)] border border-[var(--border)] flex items-center justify-center text-xs font-semibold text-[var(--foreground)] hover:bg-[var(--border)] transition-colors">
+        </Link>
+        <button className="w-10 h-10 rounded-[8px] bg-[var(--muted)] flex items-center justify-center text-sm font-semibold text-[var(--foreground)] hover:bg-[var(--border)] transition-colors">
           JD
         </button>
       </nav>

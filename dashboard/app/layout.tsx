@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Manrope, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import Navbar from "./components/Navbar";
 
 const manrope = Manrope({
   variable: "--font-manrope",
@@ -27,9 +26,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${manrope.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="h-screen overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
-        <Navbar />
-        <main className="pt-[57px] pl-14 h-full">{children}</main>
+      <body suppressHydrationWarning className="h-screen overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
+        {children}
       </body>
     </html>
   );

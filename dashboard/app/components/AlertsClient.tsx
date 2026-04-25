@@ -4,9 +4,9 @@ import { useRef } from "react";
 import dynamic from "next/dynamic";
 import type { MapRef } from "@/app/components/ui/map";
 
-const Map = dynamic(() => import("@/app/components/ui/map").then(m => m.Map), {
+const Map = dynamic(() => import("@/app/components/ui/map"), {
   ssr: false,
-  loading: () => <div className="absolute inset-0 border border-[var(--border)] rounded-[16px]" />,
+  loading: () => <div className="absolute inset-0 rounded-[16px]" />,
 });
 
 const ALERTS = [
@@ -43,23 +43,14 @@ const ALERTS = [
 ];
 
 const SEVERITY = {
-  critical: {
-    dot:   "bg-[oklch(0.78_0.09_15)]",
-    badge: "text-[oklch(0.78_0.09_15)] bg-[oklch(0.78_0.09_15)]/10 border-[oklch(0.78_0.09_15)]/20",
-  },
-  high: {
-    dot:   "bg-[oklch(0.82_0.09_55)]",
-    badge: "text-[oklch(0.82_0.09_55)] bg-[oklch(0.82_0.09_55)]/10 border-[oklch(0.82_0.09_55)]/20",
-  },
-  medium: {
-    dot:   "bg-[oklch(0.86_0.09_90)]",
-    badge: "text-[oklch(0.86_0.09_90)] bg-[oklch(0.86_0.09_90)]/10 border-[oklch(0.86_0.09_90)]/20",
-  },
+  critical: { dot: "bg-[oklch(0.78_0.09_15)]", badge: "text-[oklch(0.78_0.09_15)] bg-[oklch(0.78_0.09_15)]/10" },
+  high:     { dot: "bg-[oklch(0.82_0.09_55)]", badge: "text-[oklch(0.82_0.09_55)] bg-[oklch(0.82_0.09_55)]/10" },
+  medium:   { dot: "bg-[oklch(0.86_0.09_90)]", badge: "text-[oklch(0.86_0.09_90)] bg-[oklch(0.86_0.09_90)]/10" },
 } as const;
 
 const STATUS: Record<string, string> = {
-  new:       "text-[var(--foreground)] bg-[var(--muted)] border-[var(--border)]",
-  reviewing: "text-[oklch(0.86_0.09_90)] bg-[oklch(0.86_0.09_90)]/10 border-[oklch(0.86_0.09_90)]/20",
+  new:       "text-[var(--foreground)] bg-[var(--muted)]",
+  reviewing: "text-[oklch(0.86_0.09_90)] bg-[oklch(0.86_0.09_90)]/10",
 };
 
 export default function AlertsClient() {
@@ -82,9 +73,8 @@ export default function AlertsClient() {
           <div className="flex items-center justify-between shrink-0">
             <div>
               <h1 className="text-xl font-bold tracking-[-0.02em] text-[var(--foreground)]">Alerts</h1>
-              <p className="text-xs text-[var(--muted-foreground)] mt-0.5 font-mono">3 active</p>
             </div>
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] bg-[var(--muted)] border border-[var(--border)]">
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] bg-[var(--muted)]">
               <span className="w-1.5 h-1.5 rounded-full bg-[oklch(0.82_0.09_160)] animate-pulse" />
               <span className="text-[11px] font-mono text-[var(--muted-foreground)] uppercase tracking-widest">live</span>
             </div>
@@ -98,7 +88,7 @@ export default function AlertsClient() {
                 <div
                   key={alert.id}
                   onClick={() => mapRef.current?.easeTo({ center: alert.coords, zoom: 16, duration: 800 })}
-                  className="group flex items-center gap-4 px-5 py-4 bg-[var(--card)] border border-[var(--border)] rounded-[12px] hover:border-[var(--lavender)]/30 hover:shadow-lg hover:shadow-[var(--lavender)]/5 transition-all cursor-pointer"
+                  className="group flex items-center gap-4 px-5 py-4 bg-[var(--card)] rounded-[12px] hover:brightness-110 transition-all cursor-pointer"
                 >
                   <span className={`shrink-0 w-2 h-2 rounded-full ${sev.dot} ${alert.status === "new" ? "animate-pulse" : ""}`} />
 
@@ -112,10 +102,10 @@ export default function AlertsClient() {
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-[6px] border ${sev.badge}`}>
+                    <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-[6px] ${sev.badge}`}>
                       {alert.severity}
                     </span>
-                    <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-[6px] border ${STATUS[alert.status]}`}>
+                    <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-[6px] ${STATUS[alert.status]}`}>
                       {alert.status}
                     </span>
                     <span className="text-[11px] text-[var(--muted-foreground)] font-mono">{alert.time}</span>
@@ -127,7 +117,7 @@ export default function AlertsClient() {
         </div>
 
         {/* Right: map */}
-        <div className="relative h-full bg-[var(--card)] border border-[var(--border)] rounded-[16px] overflow-hidden">
+        <div className="relative h-full bg-[var(--card)] rounded-[16px] overflow-hidden">
           <Map
             ref={mapRef}
             center={[-118.2437, 34.0522]}
