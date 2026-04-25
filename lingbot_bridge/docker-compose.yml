@@ -1,0 +1,49 @@
+# GX10 deployment. Run from this directory after ./scripts/setup.sh has
+# populated ./vendor/lingbot-map and ./models.
+#
+#   docker compose up -d --build
+#   docker compose logs -f
+#
+# Volumes are bind-mounted so frames/outputs are inspectable from the host
+# (and survive container rebuilds).
+
+services:
+  bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: lingbot-bridge:latest
+    container_name: lingbot-bridge
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Container-internal paths — must match the bind mounts below.
+      FRAMES_DIR: /opt/bridge/frames
+      OUTPUTS_DIR: /opt/bridge/outputs
+      SESSIONS_DIR: /opt/bridge/state/sessions
+      LINGBOT_MODEL_PATH: /opt/bridge/models/lingbot-map.pt
+      LINGBOT_REPO_PATH: /opt/lingbot-map
+    ports:
+      - "${INGEST_PORT:-8001}:8001"
+    volumes:
+      - ./frames:/opt/bridge/frames
+      - ./outputs:/opt/bridge/outputs
+      - ./state:/opt/bridge/state
+      - ./models:/opt/bridge/models:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # Optional: lift shm size for DataLoader workers inside demo.py.
+    shm_size: "8gb"
+    # Healthcheck hits the FastAPI server.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
