@@ -11,6 +11,7 @@
 		1EE19E6F1033CF9C9DEFCB06 /* ZeticMLange in Frameworks */ = {isa = PBXBuildFile; productRef = 6659DD6186F39F9B64B14679 /* ZeticMLange */; };
 		4D064C8B26EA22E4F1525599 /* InferencePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B504230775C7BD924DF100 /* InferencePipeline.swift */; };
 		5EE651B17EBAD02035CAD1CD /* CameraCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C0D0842D28810A97AC28A18 /* CameraCaptureService.swift */; };
+		7A31E5D44E71A002D067A9A1 /* FrameStreamClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A31E5D34E71A002D067A9A1 /* FrameStreamClient.swift */; };
 		90BF0831F1F66CB8224715EE /* ZeticMLInferenceEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E1117D9B602275E792AE453 /* ZeticMLInferenceEngine.swift */; };
 		99C79FB9FA0A3D06FB4CB824 /* ResponderApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D5B06802ADF7806415125CF /* ResponderApp.swift */; };
 		A34BE5C1839D2CFBD243991F /* AudioMelSpectrogram.swift in Sources */ = {isa = PBXBuildFile; fileRef = 024BE9A998734D6C8C4C3938 /* AudioMelSpectrogram.swift */; };
@@ -35,6 +36,7 @@
 		2C0D0842D28810A97AC28A18 /* CameraCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCaptureService.swift; sourceTree = "<group>"; };
 		3D5B06802ADF7806415125CF /* ResponderApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResponderApp.swift; sourceTree = "<group>"; };
 		3DE726B899AF070DC908A09C /* CameraPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreviewView.swift; sourceTree = "<group>"; };
+		7A31E5D34E71A002D067A9A1 /* FrameStreamClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameStreamClient.swift; sourceTree = "<group>"; };
 		91E3D321598AD9D71430CC04 /* Responder.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Responder.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		95D3AB09779E04DCD25C5C80 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		9E1117D9B602275E792AE453 /* ZeticMLInferenceEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZeticMLInferenceEngine.swift; sourceTree = "<group>"; };
@@ -87,6 +89,7 @@
 				2C0D0842D28810A97AC28A18 /* CameraCaptureService.swift */,
 				3DE726B899AF070DC908A09C /* CameraPreviewView.swift */,
 				1D2D992AB356D3AEA5063927 /* ContentView.swift */,
+				7A31E5D34E71A002D067A9A1 /* FrameStreamClient.swift */,
 				E7B504230775C7BD924DF100 /* InferencePipeline.swift */,
 				95D3AB09779E04DCD25C5C80 /* Info.plist */,
 				3D5B06802ADF7806415125CF /* ResponderApp.swift */,
@@ -176,6 +179,7 @@
 				5EE651B17EBAD02035CAD1CD /* CameraCaptureService.swift in Sources */,
 				0C46FA4012DE074A886D5FCC /* CameraPreviewView.swift in Sources */,
 				AB950A68BBF7DC5C146AE0DA /* ContentView.swift in Sources */,
+				7A31E5D44E71A002D067A9A1 /* FrameStreamClient.swift in Sources */,
 				4D064C8B26EA22E4F1525599 /* InferencePipeline.swift in Sources */,
 				99C79FB9FA0A3D06FB4CB824 /* ResponderApp.swift in Sources */,
 				90BF0831F1F66CB8224715EE /* ZeticMLInferenceEngine.swift in Sources */,
@@ -440,7 +444,7 @@
 			repositoryURL = "https://github.com/zetic-ai/ZeticMLangeiOS.git";
 			requirement = {
 				kind = exactVersion;
-				version = "1.6.0";
+				version = "1.7.0-beta.1";
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

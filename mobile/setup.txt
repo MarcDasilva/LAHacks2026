@@ -46,3 +46,13 @@ If the initialization completes without error, your setup is ready.
 
 The initializer performs a network call on first use to download the model binary. The binary is cached locally after the first download, so subsequent initializations are fast.
 
+Frame Streaming to Dashboard
+Set these environment variables in your Xcode scheme (or `.env` pipeline) so iPhone frames stream to the dashboard relay:
+
+RESPONDER_FRAME_STREAM_ENABLED=true
+RESPONDER_FRAME_STREAM_WS_URL=ws://<your-mac-lan-ip>:8787
+RESPONDER_FRAME_STREAM_ROOM_ID=main-camera
+RESPONDER_FRAME_STREAM_FPS=10
+RESPONDER_FRAME_STREAM_JPEG_QUALITY=0.65
+
+The iPhone and Mac must be on the same Wi-Fi network. Use your Mac LAN IP (not localhost) for RESPONDER_FRAME_STREAM_WS_URL.
