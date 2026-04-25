@@ -47,6 +47,11 @@ VERSION: Final = 2
 HEADER_SIZE: Final = 16
 STRIDE_BYTES: Final = 24
 
+# "LBFS" — frustum (camera pose) binary, separate from cloud.
+FRUSTUM_MAGIC: Final = 0x4C424653
+FRUSTUM_VERSION: Final = 1
+FRUSTUM_STRIDE: Final = 48  # 3x4 fp32 extrinsic = 12 floats
+
 
 def _closed_form_inverse_se3(extrinsic):
     """Invert a (3,4) [R|t] camera matrix. R^T, -R^T t.
@@ -225,5 +230,38 @@ def get_or_build_cloud(
     blob = export_cloud(
         preds, images, conf_threshold=conf_threshold, downsample=downsample,
     )
+    cache.write_bytes(blob)
+    return blob
+
+
+def export_frustums(predictions_path: Path) -> bytes:
+    """Pack the per-frame extrinsics from predictions.pt into a small binary
+    so the dashboard can render camera-pose pyramids without loading torch.
+    """
+    import numpy as np
+    import torch
+
+    preds = torch.load(predictions_path, map_location="cpu", weights_only=False)
+    if "extrinsic" not in preds:
+        raise ValueError("predictions missing 'extrinsic'")
+    extr = preds["extrinsic"]
+    extr_np = extr.numpy() if hasattr(extr, "numpy") else np.asarray(extr)
+    extr_np = np.ascontiguousarray(extr_np.astype(np.float32, copy=False))
+    n = extr_np.shape[0]
+    header = struct.pack(
+        "<IIII", FRUSTUM_MAGIC, FRUSTUM_VERSION, n, FRUSTUM_STRIDE,
+    )
+    return header + extr_np.tobytes()
+
+
+def get_or_build_frustums(session_output_dir: Path) -> bytes:
+    cache = session_output_dir / "frustums.v1.bin"
+    preds = session_output_dir / "predictions.pt"
+    if cache.exists() and preds.exists():
+        if cache.stat().st_mtime >= preds.stat().st_mtime:
+            return cache.read_bytes()
+    if not preds.exists():
+        raise FileNotFoundError(f"no predictions.pt at {preds}")
+    blob = export_frustums(preds)
     cache.write_bytes(blob)
     return blob
