@@ -3,11 +3,14 @@
 import { useState } from "react";
 import CameraBentoBoard from "@/app/components/CameraBentoBoard";
 import { PointCloudViewer } from "../../components/ui/PointCloudViewer";
+import { ViserEmbed } from "../../components/ui/ViserEmbed";
 import { UploadButton } from "../../components/ui/UploadButton";
 import { SessionSwitcher } from "../../components/ui/SessionSwitcher";
 
 const BRIDGE_URL =
   process.env.NEXT_PUBLIC_BRIDGE_URL ?? "https://6v8yblgimbpc77-8888.proxy.runpod.net";
+const VISER_URL = process.env.NEXT_PUBLIC_VISER_URL ?? "";
+const USE_VISER = process.env.NEXT_PUBLIC_USE_VISER === "1" && VISER_URL !== "";
 const DEMO_SESSION = process.env.NEXT_PUBLIC_DEMO_SESSION ?? "church4";
 
 export default function Dashboard() {
@@ -86,14 +89,18 @@ function Panel({ children, className = "" }: { children: React.ReactNode; classN
 function RenderPanel({ sessionId, setSessionId }: { sessionId: string; setSessionId: (sid: string) => void }) {
   return (
     <div className="relative h-full w-full">
-      {/* `key` forces a clean Three.js remount whenever the session changes */}
-      <PointCloudViewer
-        key={sessionId}
-        bridgeUrl={BRIDGE_URL}
-        sessionId={sessionId}
-        conf={2.0}
-        downsample={5}
-      />
+      {/* `key` forces a clean remount whenever the session changes */}
+      {USE_VISER ? (
+        <ViserEmbed key={sessionId} viserUrl={VISER_URL} sessionId={sessionId} />
+      ) : (
+        <PointCloudViewer
+          key={sessionId}
+          bridgeUrl={BRIDGE_URL}
+          sessionId={sessionId}
+          conf={2.0}
+          downsample={5}
+        />
+      )}
       <div className="absolute top-3 left-3 z-10 flex gap-2">
         <UploadButton bridgeUrl={BRIDGE_URL} onReady={setSessionId} />
         <SessionSwitcher
