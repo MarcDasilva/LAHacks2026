@@ -52,7 +52,7 @@ def _check_environment() -> None:
         sys.exit(1)
 
 
-def _build_demo_command(frames_dir: Path) -> list[str]:
+def _build_demo_command(frames_dir: Path, output_dir: Path) -> list[str]:
     demo = config.LINGBOT_REPO / "demo.py"
     cmd = [
         sys.executable,
@@ -61,6 +61,8 @@ def _build_demo_command(frames_dir: Path) -> list[str]:
         str(config.LINGBOT_MODEL_PATH),
         "--image_folder",
         str(frames_dir),
+        "--save_dir",
+        str(output_dir),
     ]
     if config.LINGBOT_MODE == "windowed":
         cmd += ["--mode", "windowed", "--window_size", str(config.LINGBOT_WINDOW_SIZE)]
@@ -68,7 +70,6 @@ def _build_demo_command(frames_dir: Path) -> list[str]:
         cmd += ["--mask_sky"]
     if config.USE_SDPA:
         cmd += ["--use_sdpa"]
-    # demo.py defaults to writing into CWD; we cd into output_dir below.
     return cmd
 
 
@@ -108,7 +109,7 @@ def _run_one(session_id: str) -> None:
     state.status = "reconstructing"
     sessions.save(state)
 
-    cmd = _build_demo_command(frames_dir)
+    cmd = _build_demo_command(frames_dir, output_dir)
     log.info("session %s: running %s", session_id, " ".join(cmd))
 
     log_path = output_dir / "demo.log"
