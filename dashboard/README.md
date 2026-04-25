@@ -32,3 +32,5 @@ npm run dev
 
 - `FRAME_STREAM_PORT` controls the relay server port.
 - `NEXT_PUBLIC_FRAME_STREAM_WS_URL` overrides the WebSocket URL used by sender/viewer clients.
+- `NEXT_PUBLIC_CAMERA_FEED_ROOMS` sets bento feed rooms (comma-separated), for example:
+  - `NEXT_PUBLIC_CAMERA_FEED_ROOMS=main-camera,cam-02,cam-03,cam-04`

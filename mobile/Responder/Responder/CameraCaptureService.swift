@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreMedia
 import Foundation
+import UIKit
 
 protocol CameraCaptureServiceDelegate: AnyObject {
     func cameraCaptureService(_ service: CameraCaptureService, didOutputVideo sampleBuffer: CMSampleBuffer)
@@ -83,6 +84,7 @@ final class CameraCaptureService: NSObject, ObservableObject {
         sessionQueue.async { [weak self] in
             guard let self else { return }
             do {
+                UIDevice.current.beginGeneratingDeviceOrientationNotifications()
                 try self.configureSessionIfNeeded()
                 if !self.session.isRunning {
                     self.session.startRunning()
@@ -104,6 +106,7 @@ final class CameraCaptureService: NSObject, ObservableObject {
             if self.session.isRunning {
                 self.session.stopRunning()
             }
+            UIDevice.current.endGeneratingDeviceOrientationNotifications()
             self.deactivateAudioSession()
             DispatchQueue.main.async {
                 self.isSessionRunning = false
@@ -167,7 +170,7 @@ final class CameraCaptureService: NSObject, ObservableObject {
         session.addOutput(videoOutput)
 
         if let connection = videoOutput.connection(with: .video), connection.isVideoOrientationSupported {
-            connection.videoOrientation = .portrait
+            connection.videoOrientation = currentVideoOrientation()
         }
 
         session.commitConfiguration()
@@ -183,11 +186,32 @@ extension CameraCaptureService: AVCaptureVideoDataOutputSampleBufferDelegate, AV
     ) {
         switch output {
         case is AVCaptureVideoDataOutput:
+            if connection.isVideoOrientationSupported {
+                let targetOrientation = currentVideoOrientation()
+                if connection.videoOrientation != targetOrientation {
+                    connection.videoOrientation = targetOrientation
+                }
+            }
             delegate?.cameraCaptureService(self, didOutputVideo: sampleBuffer)
         case is AVCaptureAudioDataOutput:
             delegate?.cameraCaptureService(self, didOutputAudio: sampleBuffer)
         default:
             break
+        }
+    }
+}
+
+private extension CameraCaptureService {
+    func currentVideoOrientation() -> AVCaptureVideoOrientation {
+        switch UIDevice.current.orientation {
+        case .landscapeLeft:
+            return .landscapeRight
+        case .landscapeRight:
+            return .landscapeLeft
+        case .portraitUpsideDown:
+            return .portraitUpsideDown
+        default:
+            return .portrait
         }
     }
 }

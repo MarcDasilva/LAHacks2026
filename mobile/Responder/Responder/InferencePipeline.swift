@@ -38,8 +38,7 @@ struct InferenceModelSettings {
         let maxFramesPerChunk = max(environment["RESPONDER_CHUNK_FRAMES"].flatMap(Int.init) ?? 6, 1)
         let audioSamplesPerChunk = max(environment["RESPONDER_AUDIO_SAMPLES_PER_CHUNK"].flatMap(Int.init) ?? 32_000, 16_000)
         let sessionID = environment["RESPONDER_SESSION_ID"] ?? "optional-session-id"
-        let sttOnHoldFromEnv = parseBool(environment["RESPONDER_STT_ON_HOLD"], defaultValue: false)
-        let sttOnHold = audioEncoderModelName.lowercased().contains("yolo") ? false : sttOnHoldFromEnv
+        let sttOnHold = parseBool(environment["RESPONDER_STT_ON_HOLD"], defaultValue: true)
 
         let settings = InferenceModelSettings(
             personalKey: personalKey,
