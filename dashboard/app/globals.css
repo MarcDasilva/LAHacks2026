@@ -1,0 +1,89 @@
+@import "tailwindcss";
+@import "maplibre-gl/dist/maplibre-gl.css";
+
+:root {
+  /* Slate blue-gray base */
+  --background:        oklch(0.22 0.014 240);
+  --foreground:        oklch(0.95 0.006 240);
+
+  --card:              oklch(0.27 0.014 240);
+  --card-foreground:   oklch(0.95 0.006 240);
+
+  --muted:             oklch(0.31 0.014 240);
+  --muted-foreground:  oklch(0.60 0.010 240);
+
+  --border:            oklch(0.35 0.014 240);
+  --input:             oklch(0.35 0.014 240);
+
+  /* Brand */
+  --primary:           oklch(0.82 0.10 290);
+  --primary-foreground:oklch(0.22 0.014 240);
+
+  --lavender:          oklch(0.82 0.10 290);
+  --hero:              oklch(0.18 0.014 240);
+
+  --ring:              oklch(0.82 0.10 290);
+
+  /* Radius scale */
+  --radius-sm:  6px;
+  --radius:     8px;
+  --radius-md:  12px;
+  --radius-lg:  16px;
+  --radius-xl:  24px;
+}
+
+@theme inline {
+  --color-background:       var(--background);
+  --color-foreground:       var(--foreground);
+  --color-card:             var(--card);
+  --color-muted:            var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border:           var(--border);
+  --color-lavender:         var(--lavender);
+  --color-primary:          var(--primary);
+  --color-ring:             var(--ring);
+  --font-sans: var(--font-manrope);
+  --font-mono: var(--font-geist-mono);
+}
+
+*, *::before, *::after {
+  border-color: var(--border);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-manrope), ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell,
+    "Fira Sans", "Droid Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-weight: 460;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Dot grid texture utility */
+.dot-grid {
+  background-image: radial-gradient(circle, var(--foreground) 1px, transparent 1px);
+  background-size: 24px 24px;
+  opacity: 0.03;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-12px); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -600px 0; }
+  100% { background-position:  600px 0; }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--muted) 25%,
+    var(--border) 50%,
+    var(--muted) 75%
+  );
+  background-size: 600px 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
