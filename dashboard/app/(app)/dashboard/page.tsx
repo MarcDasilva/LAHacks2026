@@ -7,8 +7,7 @@ import { ViserEmbed } from "../../components/ui/ViserEmbed";
 import { UploadButton } from "../../components/ui/UploadButton";
 import { SessionSwitcher } from "../../components/ui/SessionSwitcher";
 
-const BRIDGE_URL =
-  process.env.NEXT_PUBLIC_BRIDGE_URL ?? "https://6v8yblgimbpc77-8888.proxy.runpod.net";
+const BRIDGE_URL = process.env.NEXT_PUBLIC_BRIDGE_URL ?? "/bridge";
 const VISER_URL = process.env.NEXT_PUBLIC_VISER_URL ?? "";
 const USE_VISER = process.env.NEXT_PUBLIC_USE_VISER === "1" && VISER_URL !== "";
 const DEMO_SESSION = process.env.NEXT_PUBLIC_DEMO_SESSION ?? "church4";
