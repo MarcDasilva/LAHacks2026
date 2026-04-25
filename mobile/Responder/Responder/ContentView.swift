@@ -9,21 +9,29 @@ final class CameraViewModel: NSObject, ObservableObject {
     @Published private(set) var permissionDenied = false
     @Published private(set) var inferenceModelName = ""
     @Published private(set) var latestTranscript = "Waiting for transcript..."
+    @Published private(set) var latestYamnetOutput = "Waiting for YAMNet output..."
     @Published private(set) var latestDetections = "Waiting for detections..."
     @Published private(set) var lastInferenceError: String?
     @Published private(set) var sttError: String?
+    @Published private(set) var yamnetError: String?
     @Published private(set) var yoloError: String?
     @Published private(set) var sttPipelineStatus = "Idle"
+    @Published private(set) var yamnetPipelineStatus = "Idle"
     @Published var speakTranscript = true
     @Published private(set) var sttOnHold = false
+    @Published private(set) var yamnetOnHold = false
     @Published private(set) var yoloOnHold = false
+    @Published private(set) var sttModelName = ""
+    @Published private(set) var yamnetModelName = ""
     @Published private(set) var frameStreamStatus = "idle"
     @Published private(set) var streamedFrameCount = 0
+    private var lastStatusUpdateAudioBufferCount = 0
 
     let captureService = CameraCaptureService()
     let frameStreamSettings = FrameStreamSettings.fromEnvironment()
     private var yoloPipeline: ChunkedTranscriptPipeline!
     private var audioPipeline: ChunkedAudioTranscriptionPipeline!
+    private var yamnetPipeline: ChunkedAudioTranscriptionPipeline!
     private let speechPlayer = SpeechPlaybackService()
     nonisolated(unsafe) private var frameStreamClient: FrameStreamClient!
 
@@ -31,9 +39,15 @@ final class CameraViewModel: NSObject, ObservableObject {
         let inference = InferenceEngineFactory.makeEngines()
         super.init()
         print("[Responder][STT] ViewModel initialized. sttOnHold=\(inference.sttOnHold)")
-        self.inferenceModelName = "\(inference.yoloEngine.modelMetadata.name) + \(inference.sttEngine.modelMetadata.name)"
+        self.inferenceModelName = "\(inference.yoloEngine.modelMetadata.name) + \(inference.sttEngine.modelMetadata.name) + \(inference.yamnetEngine.modelMetadata.name)"
+        self.sttModelName = inference.sttEngine.modelMetadata.name
+        self.yamnetModelName = inference.yamnetEngine.modelMetadata.name
         self.sttOnHold = inference.sttOnHold
+        self.yamnetOnHold = inference.yamnetOnHold
+        self.yoloOnHold = inference.yoloOnHold
         self.latestTranscript = inference.sttOnHold ? "STT is currently on hold." : "Waiting for transcript..."
+        self.latestYamnetOutput = inference.yamnetOnHold ? "YAMNet is currently on hold." : "Waiting for YAMNet output..."
+        self.latestDetections = inference.yoloOnHold ? "YOLO is currently on hold." : "Waiting for detections..."
         self.yoloPipeline = ChunkedTranscriptPipeline(
             engine: inference.yoloEngine,
             maxFramesPerChunk: inference.maxFramesPerChunk,
@@ -61,6 +75,7 @@ final class CameraViewModel: NSObject, ObservableObject {
             engine: inference.sttEngine,
             audioSamplesPerChunk: inference.audioSamplesPerChunk,
             sessionID: inference.sessionID,
+            statusPrefix: "STT",
             onTranscript: { [weak self] payload in
                 Task { @MainActor in
                     let text = payload.output.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -90,6 +105,39 @@ final class CameraViewModel: NSObject, ObservableObject {
                 }
             }
         )
+        self.yamnetPipeline = ChunkedAudioTranscriptionPipeline(
+            engine: inference.yamnetEngine,
+            audioSamplesPerChunk: 15_600,
+            sessionID: inference.sessionID,
+            statusPrefix: "YAMNet",
+            hopSamples: 8_000,
+            maxPendingChunks: 1,
+            onTranscript: { [weak self] payload in
+                Task { @MainActor in
+                    let text = payload.output.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    print("[Responder][YAMNET] Output chunk=\(payload.chunk.chunkID) text=\(text)")
+                    self?.latestYamnetOutput = text.isEmpty ? "[empty yamnet output]" : text
+                    self?.yamnetError = nil
+                    self?.lastInferenceError = self?.sttError ?? self?.yoloError
+                }
+            },
+            onError: { [weak self] message in
+                Task { @MainActor in
+                    print("[Responder][YAMNET][ERROR] \(message)")
+                    let tagged = "[YAMNET] \(message)"
+                    self?.yamnetError = tagged
+                    self?.lastInferenceError = tagged
+                }
+            },
+            onStatus: { [weak self] status in
+                Task { @MainActor in
+                    self?.yamnetPipelineStatus = status
+                }
+            }
+        )
+        self.yoloPipeline.setPaused(self.yoloOnHold)
+        self.audioPipeline.setPaused(self.sttOnHold)
+        self.yamnetPipeline.setPaused(self.yamnetOnHold)
         self.frameStreamClient = FrameStreamClient(
             settings: frameStreamSettings,
             stateHandler: { [weak self] status in
@@ -115,8 +163,13 @@ final class CameraViewModel: NSObject, ObservableObject {
             if captureService.audioAuthorizationStatus != .authorized {
                 latestTranscript = "[stt_unavailable] Microphone permission not granted."
                 sttPipelineStatus = "No microphone permission"
+                latestYamnetOutput = "[yamnet_unavailable] Microphone permission not granted."
+                yamnetPipelineStatus = "No microphone permission"
             } else if !sttOnHold {
                 sttPipelineStatus = "Listening..."
+            }
+            if captureService.audioAuthorizationStatus == .authorized, !yamnetOnHold {
+                yamnetPipelineStatus = "Listening..."
             }
             captureService.startRunning()
             frameStreamClient.start()
@@ -132,6 +185,7 @@ final class CameraViewModel: NSObject, ObservableObject {
     func setSTTEnabled(_ enabled: Bool) {
         print("[Responder][STT] Toggle requested enabled=\(enabled)")
         sttOnHold = !enabled
+        audioPipeline.setPaused(sttOnHold)
         if sttOnHold {
             latestTranscript = "STT is currently on hold."
             sttPipelineStatus = "Paused"
@@ -144,8 +198,21 @@ final class CameraViewModel: NSObject, ObservableObject {
         }
     }
 
+    func setYamnetEnabled(_ enabled: Bool) {
+        yamnetOnHold = !enabled
+        yamnetPipeline.setPaused(yamnetOnHold)
+        if yamnetOnHold {
+            latestYamnetOutput = "YAMNet is currently on hold."
+            yamnetPipelineStatus = "Paused"
+        } else if latestYamnetOutput == "YAMNet is currently on hold." {
+            latestYamnetOutput = "Waiting for YAMNet output..."
+            yamnetPipelineStatus = "Listening..."
+        }
+    }
+
     func setYOLOEnabled(_ enabled: Bool) {
         yoloOnHold = !enabled
+        yoloPipeline.setPaused(yoloOnHold)
         if yoloOnHold {
             latestDetections = "YOLO is currently on hold."
         } else if latestDetections == "YOLO is currently on hold." {
@@ -213,14 +280,21 @@ extension CameraViewModel: CameraCaptureServiceDelegate {
             if self.capturedAudioBufferCount <= 5 || self.capturedAudioBufferCount % 20 == 0 {
                 print("[Responder][AudioCapture] Received audio buffer #\(self.capturedAudioBufferCount) samples=\(samples.count)")
             }
+            if self.capturedAudioBufferCount - self.lastStatusUpdateAudioBufferCount >= 20 {
+                self.lastStatusUpdateAudioBufferCount = self.capturedAudioBufferCount
+                if !self.sttOnHold {
+                    self.sttPipelineStatus = "Receiving audio buffers: \(self.capturedAudioBufferCount)"
+                }
+                if !self.yamnetOnHold {
+                    self.yamnetPipelineStatus = "Receiving audio buffers: \(self.capturedAudioBufferCount)"
+                }
+            }
             if !self.sttOnHold {
-                self.sttPipelineStatus = "Receiving audio buffers: \(self.capturedAudioBufferCount)"
+                self.audioPipeline.ingestAudioSamples(samples)
             }
-            if !self.yoloOnHold {
-                self.yoloPipeline.ingestAudioSamples(samples)
+            if !self.yamnetOnHold {
+                self.yamnetPipeline.ingestAudioSamples(samples)
             }
-            if self.sttOnHold { return }
-            self.audioPipeline.ingestAudioSamples(samples)
         }
     }
 
@@ -316,87 +390,95 @@ struct ContentView: View {
     @StateObject private var viewModel = CameraViewModel()
 
     var body: some View {
-        VStack(spacing: 16) {
-            CameraPreviewView(session: viewModel.captureService.session)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(alignment: .topLeading) {
-                    Label(
-                        viewModel.captureService.isSessionRunning ? "Live" : "Idle",
-                        systemImage: "dot.circle.fill"
-                    )
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .padding(12)
+        ScrollView {
+            VStack(spacing: 16) {
+                CameraPreviewView(session: viewModel.captureService.session)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(alignment: .topLeading) {
+                        Label(
+                            viewModel.captureService.isSessionRunning ? "Live" : "Idle",
+                            systemImage: "dot.circle.fill"
+                        )
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .padding(12)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 360)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Frames received: \(viewModel.capturedFrameCount)")
+                    Text("Frames streamed: \(viewModel.streamedFrameCount)")
+                    Text("Audio buffers received: \(viewModel.capturedAudioBufferCount)")
+                    Text(lastFrameLabel)
+                        .foregroundStyle(.secondary)
+                    Text("Inference model: \(viewModel.inferenceModelName)")
+                        .foregroundStyle(.secondary)
+                    Text("Frame stream status: \(viewModel.frameStreamStatus)")
+                        .foregroundStyle(.secondary)
+                    Text("Frame stream server: \(viewModel.frameStreamSettings.wsURLString)")
+                        .foregroundStyle(.secondary)
+                    if viewModel.sttOnHold {
+                        Text("STT status: On Hold")
+                            .foregroundStyle(.orange)
+                    }
                 }
                 .frame(maxWidth: .infinity)
-                .frame(height: 360)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Frames received: \(viewModel.capturedFrameCount)")
-                Text("Frames streamed: \(viewModel.streamedFrameCount)")
-                Text("Audio buffers received: \(viewModel.capturedAudioBufferCount)")
-                Text(lastFrameLabel)
-                    .foregroundStyle(.secondary)
-                Text("Inference model: \(viewModel.inferenceModelName)")
-                    .foregroundStyle(.secondary)
-                Text("Frame stream status: \(viewModel.frameStreamStatus)")
-                    .foregroundStyle(.secondary)
-                Text("Frame stream server: \(viewModel.frameStreamSettings.wsURLString)")
-                    .foregroundStyle(.secondary)
-                if viewModel.sttOnHold {
-                    Text("STT status: On Hold")
-                        .foregroundStyle(.orange)
+                Toggle("Speak transcript (TTS)", isOn: $viewModel.speakTranscript)
+
+                VStack(spacing: 12) {
+                    pipelineCard(
+                        title: "STT Pipeline (Qwen)",
+                        subtitle: "Model: \(viewModel.sttModelName)",
+                        status: sttStatusLabel,
+                        statusColor: sttStatusColor,
+                        bodyText: "Latest STT Output:\n\(viewModel.latestTranscript)\n\nStatus: \(viewModel.sttPipelineStatus)",
+                        actionTitle: viewModel.sttOnHold ? "Resume STT Model" : "Pause STT Model",
+                        actionTint: viewModel.sttOnHold ? .green : .orange,
+                        action: { viewModel.setSTTEnabled(viewModel.sttOnHold) }
+                    )
+
+                    pipelineCard(
+                        title: "Audio Classification (YAMNet)",
+                        subtitle: "Model: \(viewModel.yamnetModelName)",
+                        status: yamnetStatusLabel,
+                        statusColor: yamnetStatusColor,
+                        bodyText: "Latest YAMNet Output:\n\(viewModel.latestYamnetOutput)\n\nStatus: \(viewModel.yamnetPipelineStatus)",
+                        actionTitle: viewModel.yamnetOnHold ? "Resume YAMNet Model" : "Pause YAMNet Model",
+                        actionTint: viewModel.yamnetOnHold ? .green : .orange,
+                        action: { viewModel.setYamnetEnabled(viewModel.yamnetOnHold) }
+                    )
+
+                    pipelineCard(
+                        title: "Vision Pipeline (YOLO)",
+                        subtitle: "Camera Frame -> YOLO Inference -> Detections",
+                        status: yoloStatusLabel,
+                        statusColor: yoloStatusColor,
+                        bodyText: viewModel.latestDetections,
+                        actionTitle: viewModel.yoloOnHold ? "Resume YOLO Model" : "Pause YOLO Model",
+                        actionTint: viewModel.yoloOnHold ? .green : .blue,
+                        action: { viewModel.setYOLOEnabled(viewModel.yoloOnHold) }
+                    )
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if viewModel.permissionDenied {
+                    Text("Camera or microphone permission denied. Enable access in Settings to continue.")
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                if let lastInferenceError = viewModel.lastInferenceError {
+                    Text(lastInferenceError)
+                        .foregroundStyle(.red)
+                        .font(.footnote)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Toggle("Speak transcript (TTS)", isOn: $viewModel.speakTranscript)
-            Button(viewModel.sttOnHold ? "Enable STT" : "Pause STT") {
-                viewModel.setSTTEnabled(viewModel.sttOnHold)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(viewModel.sttOnHold ? .green : .orange)
-
-            Button(viewModel.yoloOnHold ? "Enable YOLO" : "Pause YOLO") {
-                viewModel.setYOLOEnabled(viewModel.yoloOnHold)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(viewModel.yoloOnHold ? .green : .blue)
-
-            VStack(spacing: 12) {
-                pipelineCard(
-                    title: "Audio Pipeline (Qwen STT)",
-                    subtitle: "Microphone -> Mel -> Audio Encoder -> LLM Decoder",
-                    status: sttStatusLabel,
-                    statusColor: sttStatusColor,
-                    bodyText: "\(viewModel.latestTranscript)\n\nStatus: \(viewModel.sttPipelineStatus)"
-                )
-
-                pipelineCard(
-                    title: "Vision Pipeline (YOLO)",
-                    subtitle: "Camera Frame -> YOLO Inference -> Detections",
-                    status: yoloStatusLabel,
-                    statusColor: yoloStatusColor,
-                    bodyText: viewModel.latestDetections
-                )
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            if viewModel.permissionDenied {
-                Text("Camera or microphone permission denied. Enable access in Settings to continue.")
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            if let lastInferenceError = viewModel.lastInferenceError {
-                Text(lastInferenceError)
-                    .foregroundStyle(.red)
-                    .font(.footnote)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            .padding()
         }
-        .padding()
         .onAppear {
             viewModel.startCamera()
         }
@@ -424,6 +506,18 @@ struct ContentView: View {
         return .green
     }
 
+    private var yamnetStatusLabel: String {
+        if viewModel.yamnetOnHold { return "PAUSED" }
+        if viewModel.capturedAudioBufferCount == 0 { return "WAITING FOR AUDIO" }
+        return "RUNNING"
+    }
+
+    private var yamnetStatusColor: Color {
+        if viewModel.yamnetOnHold { return .orange }
+        if viewModel.capturedAudioBufferCount == 0 { return .gray }
+        return .green
+    }
+
     private var yoloStatusLabel: String {
         if viewModel.yoloOnHold { return "PAUSED" }
         if !viewModel.captureService.isSessionRunning { return "IDLE" }
@@ -444,7 +538,10 @@ struct ContentView: View {
         subtitle: String,
         status: String,
         statusColor: Color,
-        bodyText: String
+        bodyText: String,
+        actionTitle: String,
+        actionTint: Color,
+        action: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -467,6 +564,10 @@ struct ContentView: View {
             Text(bodyText)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .font(.body)
+
+            Button(actionTitle, action: action)
+                .buttonStyle(.borderedProminent)
+                .tint(actionTint)
         }
         .padding(12)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
