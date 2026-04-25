@@ -65,7 +65,7 @@ final class ZeticMLInferenceEngine: MLInferenceEngine {
         self.settings = settings
         self.modelMetadata = TranscriptChunk.ModelMetadata(
             provider: "zetic-ai",
-            name: settings.audioEncoderModelName,
+            name: settings.yoloModelName,
             version: settings.modelVersion,
             mode: settings.modelMode,
             latencyMS: 0
@@ -92,7 +92,7 @@ final class ZeticMLInferenceEngine: MLInferenceEngine {
             let model = try loadModelWithRetry(
                 candidateKeys: settings.credentialCandidates,
                 chunkID: chunk.chunkID,
-                modelName: settings.audioEncoderModelName,
+                modelName: settings.yoloModelName,
                 version: settings.modelVersion,
                 mode: modelMode
             )
@@ -125,7 +125,7 @@ final class ZeticMLInferenceEngine: MLInferenceEngine {
         } catch {
             throw makeStageError(
                 stage: "model_run",
-                modelName: settings.audioEncoderModelName,
+                modelName: settings.yoloModelName,
                 underlying: error
             )
         }
@@ -148,7 +148,7 @@ final class ZeticMLInferenceEngine: MLInferenceEngine {
     ) throws -> ZeticMLangeModel {
         var lastError: Error?
         let keys = candidateKeys.isEmpty ? [settings.personalKey] : candidateKeys
-        for (keyIndex, key) in keys.enumerated() {
+        for key in keys {
             for attempt in 1...3 {
                 do {
                     return try ZeticMLangeModel(
@@ -448,7 +448,7 @@ final class ZeticMLInferenceEngine: MLInferenceEngine {
             timestamp: Date(),
             event: "yolo_detection",
             yolo: YOLOLogBody.YOLOPayload(
-                model: settings.audioEncoderModelName,
+                model: settings.yoloModelName,
                 version: settings.modelVersion,
                 chunkID: chunkID,
                 detections: detections.map { detection in
@@ -497,6 +497,257 @@ final class ZeticMLInferenceEngine: MLInferenceEngine {
             userInfo: [
                 NSLocalizedDescriptionKey:
                     "[\(stage)] Failed for model '\(modelName)': \(nsError.localizedDescription). \(guidance)"
+            ]
+        )
+    }
+    #endif
+}
+
+final class QwenOmniTranscriptionEngine: AudioTranscriptionEngine {
+    let modelMetadata: TranscriptChunk.ModelMetadata
+
+    private let settings: InferenceModelSettings
+    private let melSpectrogram = AudioMelSpectrogram()
+
+    init(settings: InferenceModelSettings) {
+        self.settings = settings
+        self.modelMetadata = TranscriptChunk.ModelMetadata(
+            provider: "zetic-ai",
+            name: settings.sttDecoderModelName,
+            version: settings.modelVersion,
+            mode: settings.modelMode,
+            latencyMS: 0
+        )
+    }
+
+    func transcribe(audioSamples16kMono: [Float]) async throws -> TranscriptChunk.TranscriptOutput {
+        #if canImport(ZeticMLange)
+        guard !effectiveCredentialKeys().isEmpty else {
+            throw NSError(
+                domain: "Responder.STT",
+                code: -100,
+                userInfo: [NSLocalizedDescriptionKey: "No ZETIC credentials configured. Set ZETIC_PERSONAL_KEY (or ZETIC_TOKEN) in the run scheme."]
+            )
+        }
+        guard !audioSamples16kMono.isEmpty else {
+            return TranscriptChunk.TranscriptOutput(text: "", confidence: 0, tensorCount: 0)
+        }
+
+        let melChunks = melSpectrogram.makeMelChunksWithMetadata(from: audioSamples16kMono)
+        guard !melChunks.isEmpty else {
+            return TranscriptChunk.TranscriptOutput(text: "", confidence: 0, tensorCount: 0)
+        }
+
+        let audioEmbeddings = try encodeAudioEmbeddings(melChunks: melChunks)
+        guard !audioEmbeddings.isEmpty else {
+            return TranscriptChunk.TranscriptOutput(
+                text: "[stt_unavailable] Encoder returned no embeddings.",
+                confidence: 0,
+                tensorCount: 0
+            )
+        }
+
+        let decoder = try loadDecoderWithRetry(candidateKeys: settings.credentialCandidates)
+        defer {
+            try? decoder.cleanUp()
+        }
+
+        try decoder.validate(profile: .qwenOmniAudio)
+        let merged = try QwenOmniAudioChatTemplate().build(
+            llm: decoder,
+            audioEmbeddings: audioEmbeddings,
+            userText: settings.userPrompt
+        )
+        _ = try decoder.runWithEmbeddings(merged)
+
+        var response = ""
+        var emittedTokenCount = 0
+        while emittedTokenCount < settings.maxResponseTokens {
+            let result = decoder.waitForNextToken()
+            if result.generatedTokens == 0 {
+                break
+            }
+            if !result.token.isEmpty {
+                response += result.token
+                emittedTokenCount += 1
+            }
+        }
+
+        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return TranscriptChunk.TranscriptOutput(
+                text: "[stt_unavailable] Decoder returned no tokens.",
+                confidence: 0,
+                tensorCount: melChunks.count
+            )
+        }
+
+        return TranscriptChunk.TranscriptOutput(
+            text: trimmed,
+            confidence: 1,
+            tensorCount: melChunks.count
+        )
+        #else
+        throw NSError(
+            domain: "Responder.STT",
+            code: -1,
+            userInfo: [NSLocalizedDescriptionKey: "ZeticMLange package is not available in this build."]
+        )
+        #endif
+    }
+
+    #if canImport(ZeticMLange)
+    private func encodeAudioEmbeddings(melChunks: [AudioMelSpectrogram.MelChunk]) throws -> [Float] {
+        let encoder = try loadAudioEncoderWithRetry(candidateKeys: settings.credentialCandidates)
+
+        var mergedEmbeddings: [Float] = []
+        mergedEmbeddings.reserveCapacity(melChunks.count * 50 * 2048)
+
+        for melChunk in melChunks {
+            let inputTensor = makeTensor(from: melChunk.values, shape: [1, 128, 200])
+            let outputs = try encoder.run(inputs: [inputTensor])
+            guard let embeddingTensor = outputs.max(by: { $0.data.count < $1.data.count }) else {
+                continue
+            }
+
+            let rawEmbeddings = tensorToFloatArray(embeddingTensor)
+            guard !rawEmbeddings.isEmpty else { continue }
+
+            let embeddingDim = 2048
+            let chunkTokenCount = min(50, max(1, Int(ceil(Double(melChunk.validFrameCount) / 4.0))))
+            let expectedCount = chunkTokenCount * embeddingDim
+
+            if rawEmbeddings.count >= expectedCount {
+                mergedEmbeddings.append(contentsOf: rawEmbeddings.prefix(expectedCount))
+            } else {
+                mergedEmbeddings.append(contentsOf: rawEmbeddings)
+            }
+        }
+
+        return mergedEmbeddings
+    }
+
+    private func loadAudioEncoderWithRetry(candidateKeys: [String]) throws -> ZeticMLangeModel {
+        var lastError: Error?
+        let keys = candidateKeys.isEmpty ? [settings.personalKey] : candidateKeys
+
+        for key in keys {
+            for attempt in 1...3 {
+                do {
+                    print("[Responder][STT] Loading encoder model=\(settings.sttAudioEncoderModelName) attempt=\(attempt) keyPrefix=\(keyPrefix(key))")
+                    return try ZeticMLangeModel(
+                        personalKey: key,
+                        name: settings.sttAudioEncoderModelName,
+                        target: .ZETIC_MLANGE_TARGET_COREML
+                    )
+                } catch {
+                    lastError = error
+                    print("[Responder][STT][ERROR] Encoder load failed attempt=\(attempt): \(error.localizedDescription)")
+                    if attempt < 3, isLikelyNetworkError(error) {
+                        Thread.sleep(forTimeInterval: Double(attempt))
+                        continue
+                    }
+                }
+            }
+        }
+
+        throw makeSTTStageError(
+            stage: "load_audio_encoder",
+            modelName: settings.sttAudioEncoderModelName,
+            underlying: lastError ?? NSError(
+            domain: "Responder.STT",
+            code: -10,
+            userInfo: [NSLocalizedDescriptionKey: "Failed to load STT audio encoder model."]
+        )
+        )
+    }
+
+    private func loadDecoderWithRetry(candidateKeys: [String]) throws -> ZeticMLangeLLMModel {
+        var lastError: Error?
+        let keys = candidateKeys.isEmpty ? [settings.personalKey] : candidateKeys
+
+        for key in keys {
+            for attempt in 1...3 {
+                do {
+                    print("[Responder][STT] Loading decoder model=\(settings.sttDecoderModelName) attempt=\(attempt) keyPrefix=\(keyPrefix(key))")
+                    return try ZeticMLangeLLMModel(
+                        personalKey: key,
+                        name: settings.sttDecoderModelName
+                    )
+                } catch {
+                    lastError = error
+                    print("[Responder][STT][ERROR] Decoder load failed attempt=\(attempt): \(error.localizedDescription)")
+                    if attempt < 3, isLikelyNetworkError(error) {
+                        Thread.sleep(forTimeInterval: Double(attempt))
+                        continue
+                    }
+                }
+            }
+        }
+
+        throw makeSTTStageError(
+            stage: "load_decoder",
+            modelName: settings.sttDecoderModelName,
+            underlying: lastError ?? NSError(
+            domain: "Responder.STT",
+            code: -11,
+            userInfo: [NSLocalizedDescriptionKey: "Failed to load STT decoder model."]
+        )
+        )
+    }
+
+    private func makeTensor(from floats: [Float], shape: [Int]) -> Tensor {
+        let data = floats.withUnsafeBufferPointer { Data(buffer: $0) }
+        return Tensor(data: data, dataType: BuiltinDataType.float32, shape: shape)
+    }
+
+    private func tensorToFloatArray(_ tensor: Tensor) -> [Float] {
+        let byteCount = tensor.data.count
+        let stride = MemoryLayout<Float>.size
+        let count = byteCount / stride
+        guard count > 0 else { return [] }
+
+        var floats = Array(repeating: Float(0), count: count)
+        tensor.data.withUnsafeBytes { rawBuffer in
+            guard let base = rawBuffer.baseAddress else { return }
+            for index in 0..<count {
+                let offset = index * stride
+                let bits = base.loadUnaligned(fromByteOffset: offset, as: UInt32.self)
+                floats[index] = Float(bitPattern: UInt32(littleEndian: bits))
+            }
+        }
+        return floats
+    }
+
+    private func isLikelyNetworkError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        let text = "\(nsError.domain) \(nsError.localizedDescription)".lowercased()
+        return text.contains("network") || text.contains("timed out") || text.contains("offline")
+    }
+
+    private func keyPrefix(_ key: String) -> String {
+        String(key.prefix(8))
+    }
+
+    private func effectiveCredentialKeys() -> [String] {
+        let keys = settings.credentialCandidates.isEmpty ? [settings.personalKey] : settings.credentialCandidates
+        return keys.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    private func makeSTTStageError(stage: String, modelName: String, underlying: Error) -> NSError {
+        let nsError = underlying as NSError
+        let hasCredential = !effectiveCredentialKeys().isEmpty
+        var guidance = "Verify internet connectivity and Melange access for this model."
+        if !hasCredential {
+            guidance = "No credential found. Set ZETIC_PERSONAL_KEY (or ZETIC_TOKEN) in the run scheme."
+        } else if isLikelyNetworkError(underlying) {
+            guidance = "Network/auth failure. Check Wi-Fi, VPN/firewall restrictions, and verify the key has access to \(modelName)."
+        }
+        return NSError(
+            domain: "Responder.STT",
+            code: nsError.code == 0 ? -120 : nsError.code,
+            userInfo: [
+                NSLocalizedDescriptionKey: "[\(stage)] STT failed for model '\(modelName)': \(nsError.localizedDescription). \(guidance)"
             ]
         )
     }
