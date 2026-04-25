@@ -9,7 +9,10 @@ settings:
 packages:
   ZeticMLangeiOS:
     url: https://github.com/zetic-ai/ZeticMLangeiOS.git
-    exactVersion: 1.6.0
+    exactVersion: 1.7.0-beta.1
+  WebRTC:
+    url: https://github.com/stasel/WebRTC.git
+    branch: latest
 targets:
   Responder:
     type: application
@@ -22,6 +25,8 @@ targets:
         NSCameraUsageDescription: Responder needs camera access to capture frames for live inference.
         NSMicrophoneUsageDescription: Responder needs microphone access to capture audio for live transcription inference.
         NSSpeechRecognitionUsageDescription: Responder uses speech recognition to provide fallback transcription when cloud model loading fails.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
@@ -37,6 +42,8 @@ targets:
     dependencies:
       - package: ZeticMLangeiOS
         product: ZeticMLange
+      - package: WebRTC
+        product: WebRTC
     scheme:
       testTargets:
         - ResponderTests

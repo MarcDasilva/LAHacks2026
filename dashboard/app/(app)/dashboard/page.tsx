@@ -1,3 +1,4 @@
+import CameraBentoBoard from "@/app/components/CameraBentoBoard";
 import { PointCloudViewer } from "../../components/ui/PointCloudViewer";
 
 const BRIDGE_URL =
@@ -21,7 +22,7 @@ export default function Dashboard() {
           {/* ── Left: live body cam feed ── */}
           <Panel className="row-span-full flex flex-col min-h-0">
             <div className="flex-1 overflow-hidden relative min-h-0 rounded-[14px]">
-              <StreamPanel />
+              <CameraBentoBoard />
             </div>
           </Panel>
 
@@ -73,29 +74,6 @@ function Panel({ children, className = "" }: { children: React.ReactNode; classN
       {children}
     </div>
   );
-}
-
-function PanelHeader({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="px-4 py-2.5 border-b border-[var(--border)] shrink-0">
-      <span className="text-[10px] uppercase tracking-widest text-[var(--muted-foreground)] font-semibold font-mono">
-        {children}
-      </span>
-    </div>
-  );
-}
-
-function StreamPanel() {
-  const ready = false; // swap to true when stream is connected
-  if (!ready) return (
-    <div className="absolute inset-0 rounded-[14px] flex flex-col items-end justify-end p-3 gap-1">
-      <div className="flex items-center gap-1.5">
-        <span className="w-1.5 h-1.5 rounded-full bg-[oklch(0.78_0.09_15)] animate-pulse" />
-        <span className="text-[10px] text-[var(--muted-foreground)] font-mono uppercase tracking-widest">live</span>
-      </div>
-    </div>
-  );
-  return null; // replace with <video> when ready
 }
 
 function RenderPanel() {
