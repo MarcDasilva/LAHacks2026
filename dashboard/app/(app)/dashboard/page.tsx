@@ -1,11 +1,18 @@
+"use client";
+
+import { useState } from "react";
 import CameraBentoBoard from "@/app/components/CameraBentoBoard";
 import { PointCloudViewer } from "../../components/ui/PointCloudViewer";
+import { UploadButton } from "../../components/ui/UploadButton";
+import { SessionSwitcher } from "../../components/ui/SessionSwitcher";
 
 const BRIDGE_URL =
   process.env.NEXT_PUBLIC_BRIDGE_URL ?? "https://6v8yblgimbpc77-8888.proxy.runpod.net";
 const DEMO_SESSION = process.env.NEXT_PUBLIC_DEMO_SESSION ?? "church4";
 
 export default function Dashboard() {
+  const [sessionId, setSessionId] = useState(DEMO_SESSION);
+
   return (
     <div className="relative h-full w-full overflow-hidden">
       {/* Gradient mesh */}
@@ -32,7 +39,7 @@ export default function Dashboard() {
             {/* Top: 3D splatting render */}
             <Panel className="flex flex-col min-h-0">
               <div className="flex-1 overflow-hidden relative min-h-0 rounded-[14px]">
-                <RenderPanel />
+                <RenderPanel sessionId={sessionId} setSessionId={setSessionId} />
               </div>
             </Panel>
 
@@ -76,8 +83,28 @@ function Panel({ children, className = "" }: { children: React.ReactNode; classN
   );
 }
 
-function RenderPanel() {
-  return <PointCloudViewer bridgeUrl={BRIDGE_URL} sessionId={DEMO_SESSION} conf={2.0} downsample={5} />;
+function RenderPanel({ sessionId, setSessionId }: { sessionId: string; setSessionId: (sid: string) => void }) {
+  return (
+    <div className="relative h-full w-full">
+      {/* `key` forces a clean Three.js remount whenever the session changes */}
+      <PointCloudViewer
+        key={sessionId}
+        bridgeUrl={BRIDGE_URL}
+        sessionId={sessionId}
+        conf={2.0}
+        downsample={5}
+      />
+      <div className="absolute top-3 left-3 z-10 flex gap-2">
+        <UploadButton bridgeUrl={BRIDGE_URL} onReady={setSessionId} />
+        <SessionSwitcher
+          bridgeUrl={BRIDGE_URL}
+          current={sessionId}
+          onSelect={setSessionId}
+          alwaysInclude={DEMO_SESSION}
+        />
+      </div>
+    </div>
+  );
 }
 
 function VideoChunk({ index }: { index: number }) {

@@ -10,7 +10,11 @@ watches the filesystem.
 """
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 import time
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -80,6 +84,56 @@ async def upload_frame(session_id: str, file: UploadFile = File(...)) -> dict:
     sessions.save(state)
 
     return {"ok": True, "path": str(path.relative_to(config.ROOT)), "seq": seq}
+
+
+@app.post("/sessions/{session_id}/video")
+async def upload_video(
+    session_id: str,
+    file: UploadFile = File(...),
+    fps: float = 5.0,
+) -> dict:
+    """One-shot video upload: streams an MP4 to disk, ffmpeg-decodes into
+    `frames/<sid>/00000000.jpg…` so the rest of the pipeline (which only
+    knows about per-frame uploads) doesn't need to change. Auto-marks the
+    session 'queued' since one video == one capture.
+    """
+    _validate_session_id(session_id)
+    state = sessions.get_or_create(session_id)
+    if state.status != "recording":
+        raise HTTPException(409, f"session is {state.status}, not accepting video")
+
+    frame_dir = config.session_frames_dir(session_id)
+    frame_dir.mkdir(parents=True, exist_ok=True)
+    seq_start = state.frames
+
+    # Stream to a temp file rather than reading the whole MP4 into memory.
+    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = tmp.name
+    try:
+        cmd = [
+            "ffmpeg", "-y", "-i", tmp_path,
+            "-vf", f"fps={fps}",
+            "-qscale:v", "2",
+            "-an",
+            "-start_number", str(seq_start),
+            str(frame_dir / "%08d.jpg"),
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise HTTPException(500, f"ffmpeg failed: {proc.stderr[-500:]}")
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+    state.frames = len(list(frame_dir.glob("*.jpg")))
+    state.last_frame_at = time.time()
+    state.status = "queued"
+    state.closed_at = time.time()
+    sessions.save(state)
+    return {"ok": True, "frames": state.frames, "status": state.status}
 
 
 @app.post("/sessions/{session_id}/close")
