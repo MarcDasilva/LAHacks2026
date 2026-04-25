@@ -60,7 +60,7 @@ export function HeroSection() {
             isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
           }`}
         >
-          <span className="inline-flex items-center gap-3 text-sm font-mono text-muted-foreground">
+          <span className="inline-flex items-center gap-3 text-sm font-display text-muted-foreground">
             <span className="w-8 h-px bg-foreground/30" />
             The platform for modern teams
           </span>
@@ -136,7 +136,7 @@ export function HeroSection() {
                   <span className="text-4xl lg:text-5xl font-display">{stat.value}</span>
                   <span className="text-sm text-muted-foreground">
                     {stat.label}
-                    <span className="block font-mono text-xs mt-1">{stat.company}</span>
+                    <span className="block font-display text-xs mt-1">{stat.company}</span>
                   </span>
                 </div>
               ))}

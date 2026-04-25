@@ -99,7 +99,7 @@ export function MetricsSection() {
         {/* Header */}
         <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-8 mb-16 lg:mb-24">
           <div>
-            <span className="inline-flex items-center gap-3 text-sm font-mono text-muted-foreground mb-6">
+            <span className="inline-flex items-center gap-3 text-sm font-display text-muted-foreground mb-6">
               <span className="w-8 h-px bg-foreground/30" />
               Live metrics
             </span>
@@ -113,7 +113,7 @@ export function MetricsSection() {
               can measure.
             </h2>
           </div>
-          <div className="flex items-center gap-4 font-mono text-sm text-muted-foreground">
+          <div className="flex items-center gap-4 font-display text-sm text-muted-foreground">
             <span className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-white/60 animate-pulse" />
               Live

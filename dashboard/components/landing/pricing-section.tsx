@@ -61,7 +61,7 @@ export function PricingSection() {
       <div className="max-w-7xl mx-auto px-6 lg:px-12">
         {/* Header */}
         <div className="max-w-3xl mb-20">
-          <span className="font-mono text-xs tracking-widest text-muted-foreground uppercase block mb-6">
+          <span className="font-display text-xs tracking-widest text-muted-foreground uppercase block mb-6">
             Pricing
           </span>
           <h2 className="font-display text-5xl md:text-6xl lg:text-7xl tracking-tight text-foreground mb-6">
@@ -101,7 +101,7 @@ export function PricingSection() {
             Annual
           </span>
           {isAnnual && (
-            <span className="ml-2 px-2 py-1 bg-foreground text-primary-foreground text-xs font-mono">
+            <span className="ml-2 px-2 py-1 bg-foreground text-primary-foreground text-xs font-display">
               Save 17%
             </span>
           )}
@@ -117,14 +117,14 @@ export function PricingSection() {
               }`}
             >
               {plan.popular && (
-                <span className="absolute -top-3 left-8 px-3 py-1 bg-foreground text-primary-foreground text-xs font-mono uppercase tracking-widest">
+                <span className="absolute -top-3 left-8 px-3 py-1 bg-foreground text-primary-foreground text-xs font-display uppercase tracking-widest">
                   Most Popular
                 </span>
               )}
 
               {/* Plan Header */}
               <div className="mb-8">
-                <span className="font-mono text-xs text-muted-foreground">
+                <span className="font-display text-xs text-muted-foreground">
                   {String(idx + 1).padStart(2, "0")}
                 </span>
                 <h3 className="font-display text-3xl text-foreground mt-2">{plan.name}</h3>

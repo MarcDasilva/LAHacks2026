@@ -86,7 +86,7 @@ export function HowItWorksSection() {
       <div className="relative z-10 max-w-[1400px] mx-auto px-6 lg:px-12">
         {/* Header */}
         <div className="mb-16 lg:mb-24">
-          <span className="inline-flex items-center gap-3 text-sm font-mono text-background/50 mb-6">
+          <span className="inline-flex items-center gap-3 text-sm font-display text-background/50 mb-6">
             <span className="w-8 h-px bg-background/30" />
             Process
           </span>
@@ -151,11 +151,11 @@ export function HowItWorksSection() {
                   <div className="w-3 h-3 rounded-full bg-background/20" />
                   <div className="w-3 h-3 rounded-full bg-background/20" />
                 </div>
-                <span className="text-xs font-mono text-background/40">workflow.ts</span>
+                <span className="text-xs font-display text-background/40">workflow.ts</span>
               </div>
 
               {/* Code content */}
-              <div className="p-8 font-mono text-sm min-h-[280px]">
+              <div className="p-8 font-display text-sm min-h-[280px]">
                 <pre className="text-background/70">
                   {steps[activeStep].code.split('\n').map((line, lineIndex) => (
                     <div 
@@ -187,7 +187,7 @@ export function HowItWorksSection() {
               {/* Status */}
               <div className="px-6 py-4 border-t border-background/10 flex items-center gap-3">
                 <span className="w-2 h-2 rounded-full bg-white/60 animate-pulse" />
-                <span className="text-xs font-mono text-background/40">Ready</span>
+                <span className="text-xs font-display text-background/40">Ready</span>
               </div>
             </div>
           </div>

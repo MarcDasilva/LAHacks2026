@@ -51,7 +51,7 @@ export function FooterSection() {
             <div className="col-span-2">
               <a href="#" className="inline-flex items-center gap-2 mb-6">
                 <span className="text-2xl font-display">IMPULSE</span>
-                <span className="text-xs text-muted-foreground font-mono">TM</span>
+                <span className="text-xs text-muted-foreground font-display">TM</span>
               </a>
 
               <p className="text-muted-foreground leading-relaxed mb-8 max-w-xs">

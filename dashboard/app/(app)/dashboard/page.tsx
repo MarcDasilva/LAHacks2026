@@ -64,7 +64,7 @@ export default function Dashboard() {
         >
           <div className="flex items-end gap-2">
             <span className="font-display tracking-tight text-4xl">IMPULSE</span>
-            <span className="text-[var(--muted-foreground)] font-mono text-sm mb-1">OS</span>
+            <span className="text-[var(--muted-foreground)] font-display text-sm mb-1">OS</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="h-2 w-2 bg-[var(--foreground)] animate-pulse" />
@@ -221,7 +221,7 @@ function VideoChunk({
       <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4 text-[var(--muted-foreground)]">
         <polygon points="5,3 19,12 5,21" fill="currentColor" />
       </svg>
-      <span className="text-[9px] text-[var(--muted-foreground)] font-mono">
+      <span className="text-[9px] text-[var(--muted-foreground)] font-display">
         clip_{String(index + 1).padStart(2, "0")}
       </span>
     </div>

@@ -255,7 +255,7 @@ export function PointCloudViewer({
 
   return (
     <div ref={containerRef} className="absolute inset-0 overflow-hidden">
-      <div className="absolute bottom-3 right-3 z-10 text-[10px] text-[var(--muted-foreground)] font-mono">
+      <div className="absolute bottom-3 right-3 z-10 text-[10px] text-[var(--muted-foreground)] font-display">
         {status === "loading" && "loading…"}
         {status === "ready" && `${pointCount.toLocaleString()} pts · drag · scroll`}
         {status === "error" && `error: ${error ?? "unknown"}`}
