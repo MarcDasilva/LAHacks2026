@@ -1,0 +1,19 @@
+[project]
+name = "lingbot-memory"
+version = "0.1.0"
+description = "Streaming recognition memory + semantic search for the GX10"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "psycopg[binary,pool]>=3.2",
+    "pgvector>=0.3.6",
+    "pydantic>=2.7",
+    "sentence-transformers>=3.0",
+    "numpy>=1.26",
+    "httpx>=0.27",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ingest*", "api*"]
