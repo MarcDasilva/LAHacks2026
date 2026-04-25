@@ -1,5 +1,35 @@
 import Foundation
+import CoreGraphics
 import CoreVideo
+
+struct DetectedBoundingBox: Sendable {
+    let label: String
+    let confidence: Float
+    let rect: CGRect
+}
+
+final class DetectionOverlayStore {
+    static let shared = DetectionOverlayStore()
+
+    private let queue = DispatchQueue(label: "com.lahacks.responder.detection-overlay", attributes: .concurrent)
+    private var boxes: [DetectedBoundingBox] = []
+
+    private init() {}
+
+    func update(_ nextBoxes: [DetectedBoundingBox]) {
+        queue.sync(flags: .barrier) {
+            self.boxes = nextBoxes
+        }
+    }
+
+    func currentBoxes() -> [DetectedBoundingBox] {
+        queue.sync { boxes }
+    }
+
+    func clear() {
+        update([])
+    }
+}
 
 struct InferenceModelSettings {
     let personalKey: String

@@ -14,8 +14,8 @@ final class CameraCaptureService: NSObject, ObservableObject {
         let targetFPS: Int
 
         static func fromEnvironment(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> CameraStreamCaptureSettings {
-            let presetRaw = sanitizeEnvValue(environment["RESPONDER_CAMERA_CAPTURE_PRESET"]) ?? "hd1280x720"
-            let targetFPS = max(sanitizeEnvValue(environment["RESPONDER_CAMERA_CAPTURE_FPS"]).flatMap(Int.init) ?? 24, 1)
+            let presetRaw = sanitizeEnvValue(environment["RESPONDER_CAMERA_CAPTURE_PRESET"]) ?? "hd1920x1080"
+            let targetFPS = max(sanitizeEnvValue(environment["RESPONDER_CAMERA_CAPTURE_FPS"]).flatMap(Int.init) ?? 30, 1)
             return CameraStreamCaptureSettings(sessionPreset: sessionPreset(from: presetRaw), targetFPS: targetFPS)
         }
 

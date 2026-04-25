@@ -297,7 +297,7 @@ export default function CameraFrameViewer({
     <div className="absolute inset-0 bg-[var(--hero)]">
       <video
         ref={videoRef}
-        className={`h-full w-full object-cover ${displayMode === "webrtc" ? "opacity-100" : "opacity-0"}`}
+        className={`h-full w-full object-contain ${displayMode === "webrtc" ? "opacity-100" : "opacity-0"}`}
         autoPlay
         playsInline
         muted
@@ -306,7 +306,7 @@ export default function CameraFrameViewer({
       <img
         ref={imageRef}
         alt="Live camera stream"
-        className={`absolute inset-0 h-full w-full object-cover ${displayMode === "jpeg" ? "opacity-100" : "opacity-0"}`}
+        className={`absolute inset-0 h-full w-full object-contain ${displayMode === "jpeg" ? "opacity-100" : "opacity-0"}`}
       />
       {displayMode === "none" && (
         <div className="h-full w-full flex items-center justify-center">

@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreText
 import CoreImage
 import Foundation
 import QuartzCore
@@ -26,14 +27,14 @@ struct FrameStreamSettings {
         let wsURLString = sanitizeEnvValue(environment["RESPONDER_FRAME_STREAM_WS_URL"]) ?? "ws://localhost:8787"
         let roomID = sanitizeEnvValue(environment["RESPONDER_FRAME_STREAM_ROOM_ID"]) ?? "main-camera"
         let enabled = Self.parseBool(sanitizeEnvValue(environment["RESPONDER_FRAME_STREAM_ENABLED"]), defaultValue: true)
-        let targetFPS = max(sanitizeEnvValue(environment["RESPONDER_FRAME_STREAM_FPS"]).flatMap(Int.init) ?? 24, 1)
+        let targetFPS = max(sanitizeEnvValue(environment["RESPONDER_FRAME_STREAM_FPS"]).flatMap(Int.init) ?? 30, 1)
         let qualityRaw = sanitizeEnvValue(environment["RESPONDER_FRAME_STREAM_JPEG_QUALITY"]).flatMap(Double.init) ?? 0.65
         let jpegQuality = CGFloat(min(max(qualityRaw, 0.1), 0.95))
-        let maxDimensionRaw = sanitizeEnvValue(environment["RESPONDER_FRAME_STREAM_MAX_DIMENSION"]).flatMap(Double.init) ?? 960
+        let maxDimensionRaw = sanitizeEnvValue(environment["RESPONDER_FRAME_STREAM_MAX_DIMENSION"]).flatMap(Double.init) ?? 1920
         let maxFrameDimension = CGFloat(max(maxDimensionRaw, 160))
         let transportValue = sanitizeEnvValue(environment["RESPONDER_FRAME_STREAM_TRANSPORT"])?.lowercased() ?? FrameStreamTransport.webrtc.rawValue
         let transport = FrameStreamTransport(rawValue: transportValue) ?? .webrtc
-        let maxBitrateKbps = max(sanitizeEnvValue(environment["RESPONDER_FRAME_STREAM_MAX_BITRATE_KBPS"]).flatMap(Int.init) ?? 2200, 150)
+        let maxBitrateKbps = max(sanitizeEnvValue(environment["RESPONDER_FRAME_STREAM_MAX_BITRATE_KBPS"]).flatMap(Int.init) ?? 5500, 150)
 
         return FrameStreamSettings(
             enabled: enabled,
@@ -87,6 +88,7 @@ final class FrameStreamClient: NSObject {
 
     private let sendQueue = DispatchQueue(label: "com.lahacks.responder.frame-stream.send")
     private let ciContext = CIContext()
+    private let overlayColorSpace = CGColorSpaceCreateDeviceRGB()
     private var urlSession: URLSession?
     private var webSocketTask: URLSessionWebSocketTask?
     private var reconnectWorkItem: DispatchWorkItem?
@@ -94,6 +96,9 @@ final class FrameStreamClient: NSObject {
     private var isConnected = false
     private var isSendInFlight = false
     private var lastSentUptime: CFTimeInterval = 0
+    private var overlayBufferPool: CVPixelBufferPool?
+    private var overlayBufferWidth = 0
+    private var overlayBufferHeight = 0
 
     #if canImport(WebRTC)
     private var peerFactory: RTCPeerConnectionFactory?
@@ -286,8 +291,9 @@ final class FrameStreamClient: NSObject {
 
     private func sendJPEGFrame(_ sampleBuffer: CMSampleBuffer) {
         guard isRunning, isConnected, webSocketTask != nil, !isSendInFlight else { return }
+        guard let pixelBuffer = makeAnnotatedPixelBuffer(from: sampleBuffer) else { return }
         guard let jpegData = Self.encodeJPEG(
-            sampleBuffer: sampleBuffer,
+            pixelBuffer: pixelBuffer,
             quality: settings.jpegQuality,
             maxDimension: settings.maxFrameDimension,
             ciContext: ciContext
@@ -310,16 +316,16 @@ final class FrameStreamClient: NSObject {
     }
 
     private static func encodeJPEG(
-        sampleBuffer: CMSampleBuffer,
+        pixelBuffer: CVPixelBuffer,
         quality: CGFloat,
         maxDimension: CGFloat,
         ciContext: CIContext
     ) -> Data? {
-        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return nil }
         let image = CIImage(cvPixelBuffer: pixelBuffer)
         guard let cgImage = ciContext.createCGImage(image, from: image.extent) else { return nil }
         return autoreleasepool {
-            let original = UIImage(cgImage: cgImage)
+            let baseImage = UIImage(cgImage: cgImage)
+            let original = baseImage
             let width = original.size.width
             let height = original.size.height
             let longest = max(width, height)
@@ -342,6 +348,180 @@ final class FrameStreamClient: NSObject {
             }
             return output.jpegData(compressionQuality: quality)
         }
+    }
+
+    private func makeAnnotatedPixelBuffer(from sampleBuffer: CMSampleBuffer) -> CVPixelBuffer? {
+        let detections = DetectionOverlayStore.shared.currentBoxes()
+        guard !detections.isEmpty else {
+            return CMSampleBufferGetImageBuffer(sampleBuffer)
+        }
+        guard let sourceBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return nil }
+        let width = CVPixelBufferGetWidth(sourceBuffer)
+        let height = CVPixelBufferGetHeight(sourceBuffer)
+        let pixelFormat = CVPixelBufferGetPixelFormatType(sourceBuffer)
+        guard pixelFormat == kCVPixelFormatType_32BGRA else { return sourceBuffer }
+        guard let destinationBuffer = makeOverlayPixelBuffer(width: width, height: height, pixelFormat: pixelFormat) else {
+            return sourceBuffer
+        }
+
+        CVPixelBufferLockBaseAddress(sourceBuffer, .readOnly)
+        CVPixelBufferLockBaseAddress(destinationBuffer, [])
+        defer {
+            CVPixelBufferUnlockBaseAddress(destinationBuffer, [])
+            CVPixelBufferUnlockBaseAddress(sourceBuffer, .readOnly)
+        }
+
+        guard
+            let sourceBaseAddress = CVPixelBufferGetBaseAddress(sourceBuffer),
+            let destinationBaseAddress = CVPixelBufferGetBaseAddress(destinationBuffer)
+        else {
+            return sourceBuffer
+        }
+
+        let sourceBytesPerRow = CVPixelBufferGetBytesPerRow(sourceBuffer)
+        let destinationBytesPerRow = CVPixelBufferGetBytesPerRow(destinationBuffer)
+        let copyWidth = min(sourceBytesPerRow, destinationBytesPerRow)
+
+        for row in 0..<height {
+            let sourceRow = sourceBaseAddress.advanced(by: row * sourceBytesPerRow)
+            let destinationRow = destinationBaseAddress.advanced(by: row * destinationBytesPerRow)
+            memcpy(destinationRow, sourceRow, copyWidth)
+            if destinationBytesPerRow > copyWidth {
+                memset(destinationRow.advanced(by: copyWidth), 0, destinationBytesPerRow - copyWidth)
+            }
+        }
+
+        guard let context = CGContext(
+            data: destinationBaseAddress,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: destinationBytesPerRow,
+            space: overlayColorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        ) else {
+            return destinationBuffer
+        }
+
+        context.setLineJoin(.round)
+        context.setLineCap(.round)
+        context.setShouldAntialias(true)
+
+        let lineWidth = max(3, min(CGFloat(width), CGFloat(height)) * 0.0052)
+        let labelFont = UIFont.monospacedSystemFont(ofSize: max(14, min(CGFloat(width), CGFloat(height)) * 0.018), weight: .bold)
+        let labelPaddingX = max(6, lineWidth * 2)
+        let labelPaddingY = max(4, lineWidth * 1.25)
+        let labelCornerRadius = max(8, lineWidth * 2.1)
+
+        for detection in detections {
+            let rect = detection.rect.integral
+            guard rect.width > 4, rect.height > 4 else { continue }
+
+            let overlayRect = quartzRect(forTopLeftRect: rect, canvasHeight: CGFloat(height))
+            context.setStrokeColor(UIColor.black.withAlphaComponent(0.7).cgColor)
+            context.setLineWidth(lineWidth * 1.9)
+            context.stroke(overlayRect)
+
+            context.setStrokeColor(UIColor.systemRed.withAlphaComponent(0.995).cgColor)
+            context.setLineWidth(lineWidth)
+            context.stroke(overlayRect)
+
+            let labelText = "\(detection.label) \(Int(detection.confidence * 100))%"
+            let textBounds = (labelText as NSString).size(withAttributes: [.font: labelFont])
+
+            let labelRect = CGRect(
+                x: rect.minX,
+                y: max(0, rect.minY - textBounds.height - labelPaddingY * 2 - 8),
+                width: min(CGFloat(width) - rect.minX, ceil(textBounds.width) + labelPaddingX * 2),
+                height: textBounds.height + labelPaddingY * 2
+            ).integral
+
+            let quartzLabelRect = quartzRect(forTopLeftRect: labelRect, canvasHeight: CGFloat(height))
+            let backgroundPath = CGPath(
+                roundedRect: quartzLabelRect,
+                cornerWidth: labelCornerRadius,
+                cornerHeight: labelCornerRadius,
+                transform: nil
+            )
+            context.addPath(backgroundPath)
+            context.setFillColor(UIColor.black.withAlphaComponent(0.74).cgColor)
+            context.fillPath()
+
+            context.addPath(backgroundPath)
+            context.setStrokeColor(UIColor.systemRed.withAlphaComponent(0.995).cgColor)
+            context.setLineWidth(max(1.5, lineWidth * 0.7))
+            context.strokePath()
+
+            drawLabel(
+                labelText,
+                inTopLeftRect: CGRect(
+                    x: labelRect.minX + labelPaddingX,
+                    y: labelRect.minY + labelPaddingY,
+                    width: max(0, labelRect.width - labelPaddingX * 2),
+                    height: max(0, labelRect.height - labelPaddingY * 2)
+                ),
+                font: labelFont,
+                context: context,
+                canvasHeight: CGFloat(height)
+            )
+        }
+
+        return destinationBuffer
+    }
+
+    private func quartzRect(forTopLeftRect rect: CGRect, canvasHeight: CGFloat) -> CGRect {
+        CGRect(x: rect.minX, y: canvasHeight - rect.maxY, width: rect.width, height: rect.height)
+    }
+
+    private func drawLabel(
+        _ text: String,
+        inTopLeftRect rect: CGRect,
+        font: UIFont,
+        context: CGContext,
+        canvasHeight: CGFloat
+    ) {
+        let quartzRect = quartzRect(forTopLeftRect: rect, canvasHeight: canvasHeight)
+        let attributed = NSAttributedString(
+            string: text,
+            attributes: [
+                kCTFontAttributeName as NSAttributedString.Key: font,
+                kCTForegroundColorAttributeName as NSAttributedString.Key: UIColor.white.cgColor,
+            ]
+        )
+        let framesetter = CTFramesetterCreateWithAttributedString(attributed)
+        let path = CGPath(rect: quartzRect, transform: nil)
+        let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: 0, length: attributed.length), path, nil)
+
+        context.saveGState()
+        context.textMatrix = .identity
+        CTFrameDraw(frame, context)
+        context.restoreGState()
+    }
+
+    private func makeOverlayPixelBuffer(width: Int, height: Int, pixelFormat: OSType) -> CVPixelBuffer? {
+        if overlayBufferPool == nil || overlayBufferWidth != width || overlayBufferHeight != height {
+            let attributes: [CFString: Any] = [
+                kCVPixelBufferCGImageCompatibilityKey: true,
+                kCVPixelBufferCGBitmapContextCompatibilityKey: true,
+                kCVPixelBufferMetalCompatibilityKey: true,
+                kCVPixelBufferIOSurfacePropertiesKey: [:],
+                kCVPixelBufferPixelFormatTypeKey: pixelFormat,
+                kCVPixelBufferWidthKey: width,
+                kCVPixelBufferHeightKey: height,
+            ]
+            var newPool: CVPixelBufferPool?
+            let status = CVPixelBufferPoolCreate(kCFAllocatorDefault, nil, attributes as CFDictionary, &newPool)
+            guard status == kCVReturnSuccess else { return nil }
+            overlayBufferPool = newPool
+            overlayBufferWidth = width
+            overlayBufferHeight = height
+        }
+
+        guard let overlayBufferPool else { return nil }
+        var pixelBuffer: CVPixelBuffer?
+        let status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, overlayBufferPool, &pixelBuffer)
+        guard status == kCVReturnSuccess else { return nil }
+        return pixelBuffer
     }
 
     #if canImport(WebRTC)
@@ -485,7 +665,7 @@ final class FrameStreamClient: NSObject {
         guard isRunning, isConnected else { return }
         setupWebRTCIfNeeded()
         guard let source = localVideoSource, let capturer = localVideoCapturer else { return }
-        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        guard let pixelBuffer = makeAnnotatedPixelBuffer(from: sampleBuffer) else { return }
 
         let timeStamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         let timeStampNs: Int64

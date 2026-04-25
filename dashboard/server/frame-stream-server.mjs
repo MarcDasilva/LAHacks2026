@@ -15,11 +15,31 @@ function log(event, data = {}) {
 function getRoom(roomId) {
   let room = rooms.get(roomId);
   if (!room) {
-    room = { sender: null, viewers: new Set() };
+    room = {
+      sender: null,
+      viewers: new Set(),
+      frameCount: 0,
+      lastFrameAt: null,
+      lastFrameBytes: 0,
+      updatedAt: new Date().toISOString(),
+    };
     rooms.set(roomId, room);
     log("room_created", { roomId });
   }
   return room;
+}
+
+function roomSnapshot(roomId, room) {
+  return {
+    roomId,
+    senderOnline: Boolean(room.sender),
+    senderId: room.sender?.id ?? null,
+    viewerCount: room.viewers.size,
+    frameCount: room.frameCount,
+    lastFrameAt: room.lastFrameAt,
+    lastFrameBytes: room.lastFrameBytes,
+    updatedAt: room.updatedAt,
+  };
 }
 
 function sendJson(ws, payload) {
@@ -84,7 +104,27 @@ function findSocketById(room, socketId) {
   return null;
 }
 
-const server = http.createServer((_, res) => {
+const server = http.createServer((req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  if (req.url === "/rooms") {
+    const payload = Array.from(rooms.entries()).map(([roomId, room]) => roomSnapshot(roomId, room));
+    res.writeHead(200, {
+      "content-type": "application/json",
+      "cache-control": "no-store",
+    });
+    res.end(JSON.stringify({ rooms: payload }));
+    return;
+  }
+
   res.writeHead(200, { "content-type": "text/plain" });
   res.end("WebRTC signaling server is running.\n");
 });
@@ -102,6 +142,11 @@ wss.on("connection", (socket) => {
       if (!roomId || role !== "sender") return;
       const room = rooms.get(roomId);
       if (!room) return;
+
+      room.frameCount += 1;
+      room.lastFrameAt = new Date().toISOString();
+      room.lastFrameBytes = raw.length;
+      room.updatedAt = room.lastFrameAt;
 
       for (const viewer of room.viewers) {
         if (viewer.readyState === WebSocket.OPEN) {
@@ -135,6 +180,7 @@ wss.on("connection", (socket) => {
           room.sender.close(4001, "Replaced by a new sender");
         }
         room.sender = socket;
+        room.updatedAt = new Date().toISOString();
         sendJson(socket, { type: "joined", role: "sender", roomId: nextRoomId, socketId: socket.id });
         for (const viewer of room.viewers) {
           sendJson(socket, { type: "viewer-joined", viewerId: viewer.id });
@@ -145,6 +191,7 @@ wss.on("connection", (socket) => {
       }
 
       room.viewers.add(socket);
+      room.updatedAt = new Date().toISOString();
       sendJson(socket, { type: "joined", role: "viewer", roomId: nextRoomId, socketId: socket.id });
       sendJson(socket, { type: "stream-state", senderOnline: Boolean(room.sender), senderId: room.sender?.id ?? null });
       if (room.sender) {
