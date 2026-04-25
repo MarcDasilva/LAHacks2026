@@ -67,7 +67,7 @@ export function Navigation() {
               className={`bg-foreground hover:bg-foreground/90 text-background rounded-full transition-all duration-500 ${
                 isScrolled ? "px-4 h-8 text-xs" : "px-6"
               }`}
-              onClick={() => router.push("/dashboard")}
+              onClick={() => router.push("/dashboard?boot=1")}
             >
               Launch IMPULSE
             </Button>
@@ -117,7 +117,7 @@ export function Navigation() {
               className="flex-1 bg-foreground text-background rounded-full h-14 text-base"
               onClick={() => {
                 setIsMobileMenuOpen(false);
-                router.push("/dashboard");
+                router.push("/dashboard?boot=1");
               }}
             >
               Launch IMPULSE

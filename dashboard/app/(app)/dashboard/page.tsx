@@ -1,3 +1,7 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import CameraBentoBoard from "@/app/components/CameraBentoBoard";
 import { PointCloudViewer } from "../../components/ui/PointCloudViewer";
 
@@ -6,8 +10,76 @@ const BRIDGE_URL =
 const DEMO_SESSION = process.env.NEXT_PUBLIC_DEMO_SESSION ?? "church4";
 
 export default function Dashboard() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const shouldBoot = searchParams.get("boot") === "1";
+  const [bootPhase, setBootPhase] = useState<"hidden" | "visible" | "fading">(
+    shouldBoot ? "visible" : "hidden"
+  );
+  const [contentVisible, setContentVisible] = useState(!shouldBoot);
+  const [clipOrder, setClipOrder] = useState<number[]>(() =>
+    Array.from({ length: 6 }, (_, i) => i)
+  );
+  const [draggingClip, setDraggingClip] = useState<number | null>(null);
+  const [dragOverClip, setDragOverClip] = useState<number | null>(null);
+
+  const handleClipDrop = (targetClip: number) => {
+    if (draggingClip === null || draggingClip === targetClip) {
+      setDraggingClip(null);
+      setDragOverClip(null);
+      return;
+    }
+
+    setClipOrder((current) => reorderNumberList(current, draggingClip, targetClip));
+    setDraggingClip(null);
+    setDragOverClip(null);
+  };
+
+  useEffect(() => {
+    if (!shouldBoot) return;
+
+    const holdTimer = window.setTimeout(() => {
+      setBootPhase("fading");
+      setContentVisible(true);
+    }, 1000);
+
+    const doneTimer = window.setTimeout(() => {
+      setBootPhase("hidden");
+      router.replace("/dashboard");
+    }, 1450);
+
+    return () => {
+      window.clearTimeout(holdTimer);
+      window.clearTimeout(doneTimer);
+    };
+  }, [shouldBoot, router]);
+
   return (
     <div className="relative h-full w-full overflow-hidden">
+      {bootPhase !== "hidden" && (
+        <div
+          className={`absolute inset-0 z-50 flex flex-col items-center justify-center gap-5 bg-[var(--background)] transition-opacity duration-450 ${
+            bootPhase === "fading" ? "opacity-0" : "opacity-100"
+          }`}
+        >
+          <div className="flex items-end gap-2">
+            <span className="font-display tracking-tight text-4xl">IMPULSE</span>
+            <span className="text-[var(--muted-foreground)] font-mono text-sm mb-1">OS</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 bg-[var(--foreground)] animate-pulse" />
+            <span
+              className="h-2 w-2 bg-[var(--foreground)] animate-pulse"
+              style={{ animationDelay: "150ms" }}
+            />
+            <span
+              className="h-2 w-2 bg-[var(--foreground)] animate-pulse"
+              style={{ animationDelay: "300ms" }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Gradient mesh */}
       <div className="pointer-events-none absolute inset-0 z-0">
         <div className="absolute -top-32 -left-32 w-[500px] h-[500px] rounded-full bg-[var(--lavender)]/[0.08] blur-[100px]" />
@@ -16,7 +88,11 @@ export default function Dashboard() {
       {/* Dot grid */}
       <div className="pointer-events-none absolute inset-0 z-0 dot-grid" />
 
-      <main className="relative z-10 h-full w-full p-3 flex items-start justify-center overflow-hidden">
+      <main
+        className={`relative z-10 h-full w-full p-3 flex items-start justify-center overflow-hidden transition-opacity duration-500 ${
+          contentVisible ? "opacity-100" : "opacity-0"
+        }`}
+      >
         <div className="w-full h-full grid grid-cols-[1fr_2fr] gap-2">
 
           {/* ── Left: live body cam feed ── */}
@@ -53,8 +129,24 @@ export default function Dashboard() {
             {/* Bottom: video chunks */}
             <Panel className="flex flex-col min-h-0">
               <div className="flex gap-2 overflow-x-auto flex-1 min-h-0 p-3">
-                {[...Array(6)].map((_, i) => (
-                  <VideoChunk key={i} index={i} />
+                {clipOrder.map((clipIndex) => (
+                  <VideoChunk
+                    key={clipIndex}
+                    index={clipIndex}
+                    draggable
+                    isDragging={draggingClip === clipIndex}
+                    isDragOver={dragOverClip === clipIndex && draggingClip !== clipIndex}
+                    onDragStart={() => setDraggingClip(clipIndex)}
+                    onDragOver={() => setDragOverClip(clipIndex)}
+                    onDragLeave={() => {
+                      if (dragOverClip === clipIndex) setDragOverClip(null);
+                    }}
+                    onDrop={() => handleClipDrop(clipIndex)}
+                    onDragEnd={() => {
+                      setDraggingClip(null);
+                      setDragOverClip(null);
+                    }}
+                  />
                 ))}
               </div>
             </Panel>
@@ -80,9 +172,52 @@ function RenderPanel() {
   return <PointCloudViewer bridgeUrl={BRIDGE_URL} sessionId={DEMO_SESSION} />;
 }
 
-function VideoChunk({ index }: { index: number }) {
+type VideoChunkProps = {
+  index: number;
+  draggable?: boolean;
+  isDragging?: boolean;
+  isDragOver?: boolean;
+  onDragStart?: () => void;
+  onDragOver?: () => void;
+  onDragLeave?: () => void;
+  onDrop?: () => void;
+  onDragEnd?: () => void;
+};
+
+function VideoChunk({
+  index,
+  draggable = false,
+  isDragging = false,
+  isDragOver = false,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
+}: VideoChunkProps) {
   return (
-    <div className="shrink-0 w-36 h-full bg-[var(--hero)] flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:brightness-110 transition-all">
+    <div
+      className={`shrink-0 w-36 h-full bg-[var(--hero)] flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:brightness-110 transition-all ${
+        isDragging ? "opacity-60" : "opacity-100"
+      } ${isDragOver ? "brightness-125" : ""}`}
+      draggable={draggable}
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", String(index));
+        onDragStart?.();
+      }}
+      onDragOver={(event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        onDragOver?.();
+      }}
+      onDragLeave={onDragLeave}
+      onDrop={(event) => {
+        event.preventDefault();
+        onDrop?.();
+      }}
+      onDragEnd={onDragEnd}
+    >
       <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4 text-[var(--muted-foreground)]">
         <polygon points="5,3 19,12 5,21" fill="currentColor" />
       </svg>
@@ -91,4 +226,18 @@ function VideoChunk({ index }: { index: number }) {
       </span>
     </div>
   );
+}
+
+function reorderNumberList(list: number[], activeId: number, targetId: number) {
+  const fromIndex = list.indexOf(activeId);
+  const toIndex = list.indexOf(targetId);
+
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
+    return list;
+  }
+
+  const next = [...list];
+  const [moved] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, moved);
+  return next;
 }

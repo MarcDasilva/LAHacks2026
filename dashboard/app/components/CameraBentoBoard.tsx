@@ -20,7 +20,31 @@ export default function CameraBentoBoard({ rooms }: CameraBentoBoardProps) {
     return parsed.length > 0 ? parsed : DEFAULT_ROOMS;
   }, [rooms]);
 
+  const [roomOrder, setRoomOrder] = useState<string[]>(roomList);
   const [primaryRoom, setPrimaryRoom] = useState(roomList[0] ?? "main-camera");
+  const [draggingRoom, setDraggingRoom] = useState<string | null>(null);
+  const [dragOverRoom, setDragOverRoom] = useState<string | null>(null);
+  const effectiveRoomOrder = useMemo(() => {
+    const allowed = new Set(roomList);
+    const kept = roomOrder.filter((roomId) => allowed.has(roomId));
+    const missing = roomList.filter((roomId) => !kept.includes(roomId));
+    return [...kept, ...missing];
+  }, [roomList, roomOrder]);
+  const activePrimaryRoom = effectiveRoomOrder.includes(primaryRoom)
+    ? primaryRoom
+    : (effectiveRoomOrder[0] ?? "main-camera");
+
+  const handleDrop = (targetRoomId: string) => {
+    if (!draggingRoom || draggingRoom === targetRoomId) {
+      setDraggingRoom(null);
+      setDragOverRoom(null);
+      return;
+    }
+
+    setRoomOrder((current) => reorderList(current, draggingRoom, targetRoomId));
+    setDraggingRoom(null);
+    setDragOverRoom(null);
+  };
 
   return (
     <div className="relative h-full w-full p-2">
@@ -31,22 +55,45 @@ export default function CameraBentoBoard({ rooms }: CameraBentoBoardProps) {
 
       {mode === "single" ? (
         <div className="h-full w-full overflow-hidden border border-[var(--border)]/80 relative">
-          <CameraFrameViewer roomId={primaryRoom} />
-          <FeedBadge roomId={primaryRoom} />
+          <CameraFrameViewer roomId={activePrimaryRoom} />
+          <FeedBadge roomId={activePrimaryRoom} />
         </div>
       ) : (
         <div className="h-full w-full overflow-y-auto pr-1">
           <div className="flex flex-col gap-2">
-          {roomList.map((roomId, index) => {
-            const isPrimary = roomId === primaryRoom || (index === 0 && !roomList.includes(primaryRoom));
+          {effectiveRoomOrder.map((roomId, index) => {
+            const isPrimary = roomId === activePrimaryRoom || (index === 0 && !effectiveRoomOrder.includes(activePrimaryRoom));
 
             return (
               <button
                 key={roomId}
                 onClick={() => setPrimaryRoom(roomId)}
-                className="relative w-full overflow-hidden border border-[var(--border)]/80 text-left aspect-video shrink-0"
+                className={`relative w-full overflow-hidden border border-[var(--border)]/80 text-left aspect-video shrink-0 transition-opacity ${
+                  draggingRoom === roomId ? "opacity-60" : "opacity-100"
+                } ${
+                  dragOverRoom === roomId && draggingRoom !== roomId ? "brightness-125" : ""
+                }`}
                 title={`Focus ${roomId}`}
                 type="button"
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer.setData("text/plain", roomId);
+                  event.dataTransfer.effectAllowed = "move";
+                  setDraggingRoom(roomId);
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setDragOverRoom(roomId);
+                }}
+                onDragLeave={() => {
+                  if (dragOverRoom === roomId) setDragOverRoom(null);
+                }}
+                onDrop={() => handleDrop(roomId)}
+                onDragEnd={() => {
+                  setDraggingRoom(null);
+                  setDragOverRoom(null);
+                }}
               >
                 <CameraFrameViewer roomId={roomId} />
                 <FeedBadge roomId={roomId} highlighted={isPrimary} />
@@ -70,6 +117,20 @@ function dedupeRooms(values: string[]) {
     output.push(value);
   }
   return output;
+}
+
+function reorderList(list: string[], activeId: string, targetId: string) {
+  const fromIndex = list.indexOf(activeId);
+  const toIndex = list.indexOf(targetId);
+
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
+    return list;
+  }
+
+  const next = [...list];
+  const [moved] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, moved);
+  return next;
 }
 
 function ModeButton({
