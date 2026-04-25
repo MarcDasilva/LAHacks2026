@@ -10,10 +10,14 @@ import { SessionSwitcher } from "../../components/ui/SessionSwitcher";
 const BRIDGE_URL = process.env.NEXT_PUBLIC_BRIDGE_URL ?? "/bridge";
 const VISER_URL = process.env.NEXT_PUBLIC_VISER_URL ?? "";
 const USE_VISER = process.env.NEXT_PUBLIC_USE_VISER === "1" && VISER_URL !== "";
-const DEMO_SESSION = process.env.NEXT_PUBLIC_DEMO_SESSION ?? "church4";
+
+const DEMOS: Array<{ id: string; label: string }> = [
+  { id: "church", label: "Church" },
+  { id: "oxford", label: "Oxford" },
+];
 
 export default function Dashboard() {
-  const [sessionId, setSessionId] = useState(DEMO_SESSION);
+  const [sessionId, setSessionId] = useState(DEMOS[0].id);
 
   return (
     <div className="relative h-full w-full overflow-hidden">
@@ -100,13 +104,31 @@ function RenderPanel({ sessionId, setSessionId }: { sessionId: string; setSessio
           downsample={5}
         />
       )}
-      <div className="absolute top-3 left-3 z-10 flex gap-2">
+      <div className="absolute top-3 left-3 z-10 flex items-center gap-2">
+        <div className="flex gap-1 bg-[var(--muted)] rounded-[8px] p-1">
+          {DEMOS.map(d => {
+            const active = sessionId === d.id;
+            return (
+              <button
+                key={d.id}
+                onClick={() => setSessionId(d.id)}
+                className={`px-3 py-1 text-xs font-mono rounded-[6px] transition-colors ${
+                  active
+                    ? "bg-[var(--foreground)] text-[var(--background)]"
+                    : "text-[var(--foreground)] hover:bg-[var(--border)]"
+                }`}
+              >
+                {d.label}
+              </button>
+            );
+          })}
+        </div>
         <UploadButton bridgeUrl={BRIDGE_URL} onReady={setSessionId} />
         <SessionSwitcher
           bridgeUrl={BRIDGE_URL}
           current={sessionId}
           onSelect={setSessionId}
-          alwaysInclude={DEMO_SESSION}
+          alwaysInclude={DEMOS[0].id}
         />
       </div>
     </div>
