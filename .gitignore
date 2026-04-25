@@ -6,6 +6,13 @@ __pycache__/
 data/
 database/data/
 database/.venv/
+
+# lingbot_bridge runtime artifacts (model weights, captures, derived data)
+lingbot_bridge/models/
+lingbot_bridge/vendor/
+lingbot_bridge/outputs/
+lingbot_bridge/state/
+lingbot_bridge/frames/*/
 # macOS
 .DS_Store
 
@@ -31,3 +38,5 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+.env

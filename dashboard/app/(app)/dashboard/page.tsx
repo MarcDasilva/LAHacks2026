@@ -1,4 +1,9 @@
 import CameraBentoBoard from "@/app/components/CameraBentoBoard";
+import { PointCloudViewer } from "../../components/ui/PointCloudViewer";
+
+const BRIDGE_URL =
+  process.env.NEXT_PUBLIC_BRIDGE_URL ?? "https://6v8yblgimbpc77-8888.proxy.runpod.net";
+const DEMO_SESSION = process.env.NEXT_PUBLIC_DEMO_SESSION ?? "church4";
 
 export default function Dashboard() {
   return (
@@ -72,13 +77,7 @@ function Panel({ children, className = "" }: { children: React.ReactNode; classN
 }
 
 function RenderPanel() {
-  const ready = false; // swap to true when splat data arrives
-  if (!ready) return (
-    <div className="absolute inset-0 rounded-[14px] flex items-end justify-end p-3">
-      <span className="text-[10px] text-[var(--muted-foreground)] font-mono">no data</span>
-    </div>
-  );
-  return null;
+  return <PointCloudViewer bridgeUrl={BRIDGE_URL} sessionId={DEMO_SESSION} />;
 }
 
 function VideoChunk({ index }: { index: number }) {
