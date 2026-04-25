@@ -45,7 +45,7 @@ export function InfrastructureSection() {
               isVisible ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-8"
             }`}
           >
-            <span className="inline-flex items-center gap-3 text-sm font-mono text-muted-foreground mb-6">
+            <span className="inline-flex items-center gap-3 text-sm font-display text-muted-foreground mb-6">
               <span className="w-8 h-px bg-foreground/30" />
               Infrastructure
             </span>
@@ -85,8 +85,8 @@ export function InfrastructureSection() {
             <div className="border border-foreground/10">
               {/* Header */}
               <div className="px-6 py-4 border-b border-foreground/10 flex items-center justify-between">
-                <span className="text-sm font-mono text-muted-foreground">Edge Network</span>
-                <span className="flex items-center gap-2 text-xs font-mono text-foreground/70">
+                <span className="text-sm font-display text-muted-foreground">Edge Network</span>
+                <span className="flex items-center gap-2 text-xs font-display text-foreground/70">
                   <span className="w-2 h-2 rounded-full bg-white/60 animate-pulse" />
                   All operational
                 </span>
@@ -112,7 +112,7 @@ export function InfrastructureSection() {
                         <div className="text-sm text-muted-foreground">{location.region}</div>
                       </div>
                     </div>
-                    <span className="font-mono text-sm text-muted-foreground">{location.latency}</span>
+                    <span className="font-display text-sm text-muted-foreground">{location.latency}</span>
                   </div>
                 ))}
               </div>

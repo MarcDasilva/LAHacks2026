@@ -54,7 +54,7 @@ export function SecuritySection() {
               isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
             }`}
           >
-            <span className="inline-flex items-center justify-center gap-3 text-sm font-mono text-muted-foreground mb-6">
+            <span className="inline-flex items-center justify-center gap-3 text-sm font-display text-muted-foreground mb-6">
               <span className="w-8 h-px bg-foreground/30" />
               Security
             </span>
@@ -73,7 +73,7 @@ export function SecuritySection() {
               {certifications.map((cert, index) => (
                 <span
                   key={cert}
-                  className={`px-4 py-2 border border-foreground/10 text-sm font-mono transition-all duration-500 ${
+                  className={`px-4 py-2 border border-foreground/10 text-sm font-display transition-all duration-500 ${
                     isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
                   }`}
                   style={{ transitionDelay: `${index * 50 + 200}ms` }}

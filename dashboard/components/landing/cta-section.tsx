@@ -79,7 +79,7 @@ export function CtaSection() {
                   </Button>
                 </div>
 
-                <p className="text-sm text-muted-foreground mt-8 font-mono">
+                <p className="text-sm text-muted-foreground mt-8 font-display">
                   No credit card required
                 </p>
               </div>

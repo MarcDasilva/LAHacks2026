@@ -117,7 +117,7 @@ export function DevelopersSection() {
               isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
             }`}
           >
-            <span className="inline-flex items-center gap-3 text-sm font-mono text-muted-foreground mb-6">
+            <span className="inline-flex items-center gap-3 text-sm font-display text-muted-foreground mb-6">
               <span className="w-8 h-px bg-foreground/30" />
               For developers
             </span>
@@ -162,7 +162,7 @@ export function DevelopersSection() {
                     key={example.label}
                     type="button"
                     onClick={() => setActiveTab(idx)}
-                    className={`px-6 py-4 text-sm font-mono transition-colors relative ${
+                    className={`px-6 py-4 text-sm font-display transition-colors relative ${
                       activeTab === idx
                         ? "text-foreground"
                         : "text-muted-foreground hover:text-foreground"
@@ -190,7 +190,7 @@ export function DevelopersSection() {
               </div>
               
               {/* Code content */}
-              <div className="p-8 font-mono text-sm bg-foreground/[0.01] min-h-[220px]">
+              <div className="p-8 font-display text-sm bg-foreground/[0.01] min-h-[220px]">
                 <pre className="text-foreground/80">
                   {codeExamples[activeTab].code.split('\n').map((line, lineIndex) => (
                     <div 

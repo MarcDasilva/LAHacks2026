@@ -20,7 +20,7 @@ export default function Navbar() {
           <span className="font-display tracking-tight text-2xl">
             IMPULSE
           </span>
-          <span className="text-[var(--muted-foreground)] font-mono text-xs mt-1">
+          <span className="text-[var(--muted-foreground)] font-display text-xs mt-1">
             OS
           </span>
         </Link>

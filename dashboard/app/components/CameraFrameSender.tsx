@@ -244,7 +244,7 @@ export default function CameraFrameSender({
         <video ref={videoRef} className="h-full w-full object-cover" muted playsInline />
         {!isStreaming && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-sm text-[var(--muted-foreground)] font-mono uppercase tracking-widest">
+            <span className="text-sm text-[var(--muted-foreground)] font-display uppercase tracking-widest">
               camera preview
             </span>
           </div>
@@ -270,11 +270,11 @@ export default function CameraFrameSender({
       </div>
 
       <div className="rounded-[12px] bg-[var(--card)] border border-[var(--border)] p-3">
-        <div className="text-xs text-[var(--muted-foreground)] font-mono">status: {status}</div>
-        <div className="text-xs text-[var(--muted-foreground)] font-mono">server: {resolvedServerUrl}</div>
-        <div className="text-xs text-[var(--muted-foreground)] font-mono">room: {roomId}</div>
-        <div className="text-xs text-[var(--muted-foreground)] font-mono">max capture: {maxWidth}x{maxHeight}@{maxFps}</div>
-        <div className="text-xs text-[var(--muted-foreground)] font-mono">connected viewers: {viewerCount}</div>
+        <div className="text-xs text-[var(--muted-foreground)] font-display">status: {status}</div>
+        <div className="text-xs text-[var(--muted-foreground)] font-display">server: {resolvedServerUrl}</div>
+        <div className="text-xs text-[var(--muted-foreground)] font-display">room: {roomId}</div>
+        <div className="text-xs text-[var(--muted-foreground)] font-display">max capture: {maxWidth}x{maxHeight}@{maxFps}</div>
+        <div className="text-xs text-[var(--muted-foreground)] font-display">connected viewers: {viewerCount}</div>
         {error && <div className="text-xs text-[oklch(0.78_0.09_15)] mt-1">{error}</div>}
       </div>
     </div>

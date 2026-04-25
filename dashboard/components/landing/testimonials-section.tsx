@@ -55,11 +55,11 @@ export function TestimonialsSection() {
       <div className="max-w-7xl mx-auto px-6 lg:px-12">
         {/* Section Label */}
         <div className="flex items-center gap-4 mb-16">
-          <span className="font-mono text-xs tracking-widest text-muted-foreground uppercase">
+          <span className="font-display text-xs tracking-widest text-muted-foreground uppercase">
             What people say
           </span>
           <div className="flex-1 h-px bg-foreground/10" />
-          <span className="font-mono text-xs text-muted-foreground">
+          <span className="font-display text-xs text-muted-foreground">
             {String(activeIndex + 1).padStart(2, "0")} / {String(testimonials.length).padStart(2, "0")}
           </span>
         </div>
@@ -104,7 +104,7 @@ export function TestimonialsSection() {
                 isAnimating ? "opacity-0 scale-95" : "opacity-100 scale-100"
               }`}
             >
-              <span className="font-mono text-xs tracking-widest text-muted-foreground uppercase block mb-4">
+              <span className="font-display text-xs tracking-widest text-muted-foreground uppercase block mb-4">
                 Key Result
               </span>
               <p className="font-display text-3xl md:text-4xl text-foreground">
@@ -137,7 +137,7 @@ export function TestimonialsSection() {
 
         {/* Company Logos Marquee Label */}
         <div className="mt-24 pt-12 border-t border-foreground/10">
-          <p className="font-mono text-xs tracking-widest text-muted-foreground uppercase mb-8 text-center">
+          <p className="font-display text-xs tracking-widest text-muted-foreground uppercase mb-8 text-center">
             Trusted by forward-thinking teams
           </p>
         </div>
