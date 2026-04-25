@@ -1,0 +1,7 @@
+{"ts":"2026-04-25T14:32:01.000Z","labels":["person","walking","kitchen"],"confidence":0.92}
+{"ts":"2026-04-25T14:32:03.500Z","labels":["person","standing","counter"],"confidence":0.88}
+{"ts":"2026-04-25T14:32:07.123Z","labels":["person","fall","lying_on_floor","chair"],"confidence":0.91}
+{"ts":"2026-04-25T14:32:08.500Z","labels":["person","fall","motionless"],"confidence":0.89}
+{"ts":"2026-04-25T14:32:11.000Z","labels":["chair","table","empty_room"],"confidence":0.7}
+{"ts":"2026-04-25T14:32:14.000Z","labels":["dog","walking"],"confidence":0.85}
+{"ts":"2026-04-25T14:32:18.000Z","labels":["person","conversation"],"confidence":0.9}
