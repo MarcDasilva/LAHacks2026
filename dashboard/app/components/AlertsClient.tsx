@@ -1,21 +1,24 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { MapRef } from "@/app/components/ui/map";
+import GlassSurface from "@/components/GlassSurface";
 import {
   Ambulance,
   Car,
   Layers3,
   LocateFixed,
   MapPinned,
+  Minus,
   Navigation,
   Plus,
-  Minus,
   Radar,
   Route,
+  Search,
   ShieldAlert,
+  Siren,
 } from "lucide-react";
 
 const Map = dynamic(() => import("@/app/components/ui/map"), {
@@ -51,9 +54,9 @@ const ALERTS: AlertItem[] = [
     time: "14:29:55",
     severity: "high",
     title: "Physical altercation detected",
-    location: "Alley — 5th & Grand",
+    location: "Alley - 5th & Grand",
     status: "reviewing",
-    coords: [-118.2500, 34.0480] as [number, number],
+    coords: [-118.25, 34.048] as [number, number],
   },
   {
     id: "INC-0039",
@@ -63,7 +66,7 @@ const ALERTS: AlertItem[] = [
     title: "Unattended vehicle flagged",
     location: "Parking lot C",
     status: "reviewing",
-    coords: [-118.2380, 34.0560] as [number, number],
+    coords: [-118.238, 34.056] as [number, number],
   },
 ];
 
@@ -79,20 +82,30 @@ const WESTWOOD_ALERT: AlertItem = {
 };
 
 const SEVERITY = {
-  critical: { dot: "bg-[oklch(0.78_0.09_15)]", badge: "text-[oklch(0.78_0.09_15)] bg-[oklch(0.78_0.09_15)]/10" },
-  high:     { dot: "bg-[oklch(0.82_0.09_55)]", badge: "text-[oklch(0.82_0.09_55)] bg-[oklch(0.82_0.09_55)]/10" },
-  medium:   { dot: "bg-[oklch(0.86_0.09_90)]", badge: "text-[oklch(0.86_0.09_90)] bg-[oklch(0.86_0.09_90)]/10" },
+  critical: {
+    dot: "bg-[oklch(0.78_0.09_15)]",
+    badge: "text-black bg-[oklch(0.78_0.09_15)]/12 border border-[oklch(0.78_0.09_15)]/45",
+  },
+  high: {
+    dot: "bg-[oklch(0.82_0.09_55)]",
+    badge: "text-black bg-[oklch(0.82_0.09_55)]/12 border border-[oklch(0.82_0.09_55)]/45",
+  },
+  medium: {
+    dot: "bg-[oklch(0.86_0.09_90)]",
+    badge: "text-black bg-[oklch(0.86_0.09_90)]/12 border border-[oklch(0.86_0.09_90)]/45",
+  },
 } as const;
 
-const STATUS: Record<string, string> = {
-  new:       "text-[var(--foreground)] bg-[var(--muted)]",
-  reviewing: "text-[oklch(0.86_0.09_90)] bg-[oklch(0.86_0.09_90)]/10",
+const STATUS: Record<AlertItem["status"], string> = {
+  new: "text-[var(--foreground)] bg-[var(--muted)] border border-[var(--border)]",
+  reviewing: "text-black bg-[oklch(0.86_0.09_90)]/12 border border-[oklch(0.86_0.09_90)]/45",
 };
 
 export default function AlertsClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const shouldBoot = searchParams.get("boot") === "1";
+
   const [bootPhase, setBootPhase] = useState<"hidden" | "visible" | "fading">(
     shouldBoot ? "visible" : "hidden"
   );
@@ -103,7 +116,16 @@ export default function AlertsClient() {
   const [mapZoom, setMapZoom] = useState(16.2);
   const [is3D, setIs3D] = useState(true);
   const mapRef = useRef<MapRef>(null);
+
   const defaultCenter: [number, number] = [-118.0267, 34.0522];
+
+  const counts = useMemo(() => {
+    return {
+      critical: alerts.filter((a) => a.severity === "critical").length,
+      high: alerts.filter((a) => a.severity === "high").length,
+      medium: alerts.filter((a) => a.severity === "medium").length,
+    };
+  }, [alerts]);
 
   useEffect(() => {
     if (!shouldBoot) return;
@@ -125,20 +147,18 @@ export default function AlertsClient() {
   }, [shouldBoot, router]);
 
   useEffect(() => {
-    const navEntry = window.performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+    const navEntry = window.performance.getEntriesByType("navigation")[0] as
+      | PerformanceNavigationTiming
+      | undefined;
     const isReload = navEntry?.type === "reload";
     if (!isReload) return;
 
     const delayMs = shouldBoot ? 3650 : 2550;
     const timer = window.setTimeout(() => {
-      setAlerts((current) => {
-        return [WESTWOOD_ALERT, ...current.filter((alert) => alert.id !== WESTWOOD_ALERT.id)];
-      });
+      setAlerts((current) => [WESTWOOD_ALERT, ...current.filter((a) => a.id !== WESTWOOD_ALERT.id)]);
       setNewAlertId(WESTWOOD_ALERT.id);
       setNewAlertActive(false);
-      window.requestAnimationFrame(() => {
-        setNewAlertActive(true);
-      });
+      window.requestAnimationFrame(() => setNewAlertActive(true));
     }, delayMs);
 
     return () => {
@@ -146,8 +166,22 @@ export default function AlertsClient() {
     };
   }, [shouldBoot]);
 
+  const focusAlert = (alert: AlertItem) => {
+    mapRef.current?.easeTo({
+      center: alert.coords,
+      zoom: alert.id === WESTWOOD_ALERT.id ? 17.3 : 16.8,
+      pitch: 62,
+      bearing: -30,
+      duration: 900,
+    });
+
+    window.setTimeout(() => {
+      mapRef.current?.highlightBuildingAt(alert.coords);
+    }, 700);
+  };
+
   return (
-    <div className="relative h-full w-full overflow-hidden">
+    <div className="alerts-page relative h-full w-full overflow-hidden bg-[var(--background)]">
       {bootPhase !== "hidden" && (
         <div
           className={`absolute inset-0 z-50 flex flex-col items-center justify-center gap-5 bg-[var(--background)] transition-opacity duration-450 ${
@@ -160,22 +194,15 @@ export default function AlertsClient() {
           </div>
           <div className="flex items-center gap-2">
             <span className="h-2 w-2 bg-[var(--foreground)] animate-pulse" />
-            <span
-              className="h-2 w-2 bg-[var(--foreground)] animate-pulse"
-              style={{ animationDelay: "150ms" }}
-            />
-            <span
-              className="h-2 w-2 bg-[var(--foreground)] animate-pulse"
-              style={{ animationDelay: "300ms" }}
-            />
+            <span className="h-2 w-2 bg-[var(--foreground)] animate-pulse" style={{ animationDelay: "150ms" }} />
+            <span className="h-2 w-2 bg-[var(--foreground)] animate-pulse" style={{ animationDelay: "300ms" }} />
           </div>
         </div>
       )}
 
-      {/* Gradient mesh */}
       <div className="pointer-events-none absolute inset-0 z-0">
-        <div className="absolute -top-32 -left-32 w-[500px] h-[500px] rounded-full bg-[var(--lavender)]/[0.06] blur-[100px]" />
-        <div className="absolute bottom-0 right-0 w-[350px] h-[350px] rounded-full bg-[oklch(0.65_0.20_350)]/[0.04] blur-[80px]" />
+        <div className="absolute -top-28 -left-24 h-[460px] w-[460px] rounded-full bg-[var(--lavender)]/[0.08] blur-[72px]" />
+        <div className="absolute bottom-0 right-0 h-[320px] w-[320px] rounded-full bg-[oklch(0.65_0.20_350)]/[0.08] blur-[56px]" />
       </div>
       <div className="pointer-events-none absolute inset-0 z-0 dot-grid" />
 
@@ -185,19 +212,131 @@ export default function AlertsClient() {
         }`}
       >
         <div className="absolute inset-0">
-          <Map
-            ref={mapRef}
-            center={defaultCenter}
-            zoom={mapZoom}
-            pitch={is3D ? 58 : 0}
-            bearing={-22}
-          />
+          <Map ref={mapRef} center={defaultCenter} zoom={mapZoom} pitch={is3D ? 58 : 0} bearing={-22} />
         </div>
 
-        <div className="pointer-events-none absolute right-3 top-3 z-20 flex flex-col gap-2">
-          <div className="pointer-events-auto border border-[var(--border)] bg-[var(--background)]/80 backdrop-blur-xl">
-            <div className="flex">
-              <MapToolbarButton
+        <div className="pointer-events-none absolute inset-0 p-3 md:p-4">
+          <header className="pointer-events-auto flex items-center gap-3">
+            <GlassSurface
+              width="auto"
+              height="auto"
+              borderRadius={12}
+              saturation={1.15}
+              backgroundOpacity={0.08}
+              blur={4}
+              className="alerts-glass"
+            >
+              <div className="flex items-center gap-3 px-3 py-2">
+                <span className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-[var(--muted)] text-[var(--foreground)]">
+                  <Siren size={18} />
+                </span>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] font-display text-[var(--muted-foreground)]">Live Incident Ops</p>
+                  <p className="text-[15px] font-bold tracking-[-0.01em] text-[var(--foreground)]">Bond Incident Command</p>
+                </div>
+              </div>
+            </GlassSurface>
+
+            <div className="hidden md:block flex-1">
+              <GlassSurface
+                width="100%"
+                height={52}
+                borderRadius={12}
+                saturation={1.15}
+                backgroundOpacity={0.08}
+                blur={4}
+                className="alerts-glass"
+              >
+                <div className="flex h-full items-center gap-2 px-3">
+                  <Search size={16} className="text-[var(--muted-foreground)]" />
+                  <input
+                    type="text"
+                    placeholder="Search names, addresses, incidents..."
+                    className="w-full bg-transparent text-sm font-semibold text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none"
+                  />
+                </div>
+              </GlassSurface>
+            </div>
+
+            <div className="hidden lg:flex items-center gap-2">
+              <MetricChip label="Critical" value={counts.critical} />
+              <MetricChip label="High" value={counts.high} />
+              <MetricChip label="Medium" value={counts.medium} />
+            </div>
+          </header>
+
+          <div className="mt-3 flex h-[calc(100%-132px)] gap-3 md:gap-4">
+            <section className="pointer-events-auto w-full max-w-[420px] h-full">
+              <GlassSurface
+                width="100%"
+                height="100%"
+                borderRadius={14}
+                saturation={1.18}
+                backgroundOpacity={0.1}
+                blur={4}
+                className="alerts-glass"
+              >
+                <div className="h-full flex flex-col overflow-hidden">
+                  <div className="border-b border-[var(--border)]/70 p-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      <GlassActionButton icon={<Car size={15} />} label="Dispatch Car" />
+                      <GlassActionButton icon={<Ambulance size={15} />} label="Dispatch EMT" danger />
+                    </div>
+                  </div>
+
+                  <div className="px-3 py-2 border-b border-[var(--border)]/70 flex items-center justify-between">
+                    <h2 className="text-[13px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">Incident Queue</h2>
+                    <span className="text-[12px] font-semibold text-[var(--muted-foreground)]">{alerts.length} active</span>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-2.5 space-y-2">
+                    {alerts.map((alert) => {
+                      const sev = SEVERITY[alert.severity];
+                      const isNewCritical = alert.status === "new" && alert.severity === "critical";
+                      return (
+                        <GlassSurface
+                          key={alert.id}
+                          width="100%"
+                          height="auto"
+                          borderRadius={12}
+                          saturation={1.12}
+                          backgroundOpacity={0.08}
+                          blur={4}
+                          className={`alerts-glass alerts-glass-press ${
+                            alert.id === newAlertId
+                              ? newAlertActive
+                                ? "opacity-100 translate-y-0 scale-100 duration-500 ease-out new-alert-outline"
+                                : "opacity-0 -translate-y-2 scale-[0.98]"
+                              : ""
+                          } ${isNewCritical ? "border-[oklch(0.78_0.09_15)]/92 bg-[oklch(0.78_0.09_15)]/20" : "border-[var(--border)]/70"}`}
+                        >
+                          <button type="button" onClick={() => focusAlert(alert)} className="w-full text-left px-3 py-2.5 hover:brightness-110 transition-all">
+                            <div className="flex items-start gap-2.5">
+                              <span className={`mt-1.5 h-2.5 w-2.5 rounded-full ${sev.dot} ${alert.status === "new" ? "animate-pulse" : ""}`} />
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-[13px] font-bold tracking-[-0.01em] text-[var(--foreground)]">{alert.title}</p>
+                                <p className="mt-1 truncate text-[11px] font-semibold text-[var(--muted-foreground)]">{alert.location}</p>
+                                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                                  <Pill className={sev.badge}>{alert.severity}</Pill>
+                                  <Pill className={STATUS[alert.status]}>{alert.status}</Pill>
+                                  <span className="text-[10px] font-semibold text-[var(--muted-foreground)] font-display">{alert.time}</span>
+                                  <span className="text-[10px] font-semibold text-[var(--muted-foreground)] font-display">{alert.officer}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </button>
+                        </GlassSurface>
+                      );
+                    })}
+                  </div>
+                </div>
+              </GlassSurface>
+            </section>
+
+            <div className="flex-1" />
+
+            <aside className="pointer-events-auto hidden md:flex w-[74px] flex-col gap-2 items-end">
+              <ControlRailButton
                 title="Zoom in"
                 onClick={() => {
                   const next = Math.min(20, mapZoom + 0.6);
@@ -206,7 +345,7 @@ export default function AlertsClient() {
                 }}
                 icon={<Plus size={15} />}
               />
-              <MapToolbarButton
+              <ControlRailButton
                 title="Zoom out"
                 onClick={() => {
                   const next = Math.max(10, mapZoom - 0.6);
@@ -215,9 +354,7 @@ export default function AlertsClient() {
                 }}
                 icon={<Minus size={15} />}
               />
-            </div>
-            <div className="flex border-t border-[var(--border)]">
-              <MapToolbarButton
+              <ControlRailButton
                 title={is3D ? "Switch to 2D" : "Switch to 3D"}
                 onClick={() => {
                   const next3D = !is3D;
@@ -230,8 +367,8 @@ export default function AlertsClient() {
                 }}
                 icon={<Layers3 size={15} />}
               />
-              <MapToolbarButton
-                title="Reset view"
+              <ControlRailButton
+                title="Reset"
                 onClick={() => {
                   setMapZoom(16.2);
                   setIs3D(true);
@@ -245,10 +382,8 @@ export default function AlertsClient() {
                 }}
                 icon={<LocateFixed size={15} />}
               />
-            </div>
-            <div className="flex border-t border-[var(--border)]">
-              <MapToolbarButton
-                title="Center all alerts"
+              <ControlRailButton
+                title="Center all"
                 onClick={() => {
                   mapRef.current?.easeTo({
                     center: [-118.2437, 34.0522],
@@ -260,8 +395,8 @@ export default function AlertsClient() {
                 }}
                 icon={<Radar size={15} />}
               />
-              <MapToolbarButton
-                title="Go to Westwood incident"
+              <ControlRailButton
+                title="Westwood"
                 onClick={() => {
                   mapRef.current?.easeTo({
                     center: [-118.446775, 34.070211],
@@ -273,112 +408,88 @@ export default function AlertsClient() {
                 }}
                 icon={<MapPinned size={15} />}
               />
-            </div>
+            </aside>
           </div>
-        </div>
 
-        <div className="pointer-events-none absolute right-3 bottom-3 z-20 flex items-center gap-3">
-          <MapChip icon={<Navigation size={16} />} label="3D Navigation" />
-          <MapChip icon={<Route size={16} />} label="Routes" />
-          <MapChip icon={<ShieldAlert size={16} />} label="Incident Zone" />
-        </div>
-
-        <div className="pointer-events-none absolute inset-0 p-3 flex items-start">
-          <div className="pointer-events-auto absolute top-3 left-[calc(3px+420px+12px)] w-[360px] max-w-[calc(100vw-460px)]">
-            <input
-              type="text"
-              placeholder="Search address..."
-              className="w-full h-10 px-3 border border-[var(--border)] bg-[var(--background)]/82 backdrop-blur-xl text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
-            />
-          </div>
-          <div className="pointer-events-auto w-full max-w-[420px] border border-[var(--border)] bg-[var(--background)]/78 backdrop-blur-xl max-h-[calc(100%-1.5rem)] overflow-hidden">
-            <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)]">
-              <h1 className="text-lg font-bold tracking-[-0.02em] text-[var(--foreground)]">Alerts</h1>
-            </div>
-
-            <div className="px-2.5 pt-2.5 pb-0">
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  className="h-11 border border-[var(--border)] bg-[var(--muted)] text-[var(--foreground)] text-sm font-semibold tracking-[-0.01em] flex items-center justify-center gap-2 hover:bg-[var(--border)] transition-colors"
-                >
-                  <Car size={16} />
-                  <span>Dispatch Car</span>
-                </button>
-                <button
-                  type="button"
-                  className="h-11 border border-[oklch(0.78_0.09_15)]/70 bg-[oklch(0.78_0.09_15)]/14 text-[oklch(0.78_0.09_15)] text-sm font-semibold tracking-[-0.01em] flex items-center justify-center gap-2 hover:bg-[oklch(0.78_0.09_15)]/24 transition-colors"
-                >
-                  <Ambulance size={16} />
-                  <span>Dispatch Ambulance</span>
-                </button>
+          <GlassSurface
+            width="100%"
+            height="auto"
+            borderRadius={12}
+            saturation={1.14}
+            backgroundOpacity={0.08}
+            blur={4}
+            className="alerts-glass pointer-events-auto mt-3"
+          >
+            <footer className="px-3 py-2.5 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
+                <span className="h-2 w-2 rounded-full bg-[oklch(0.78_0.09_15)] animate-pulse" />
+                Live feed synchronized
               </div>
-            </div>
-
-            <div className="p-2.5 pt-2 flex flex-col gap-1.5 overflow-y-auto max-h-[calc(100vh-11rem)]">
-              {alerts.map((alert) => {
-                const sev = SEVERITY[alert.severity as keyof typeof SEVERITY];
-                return (
-                  <div
-                    key={alert.id}
-                    onClick={() =>
-                      {
-                        mapRef.current?.easeTo({
-                          center: alert.coords,
-                          zoom: alert.id === WESTWOOD_ALERT.id ? 17.3 : 16.8,
-                          pitch: 62,
-                          bearing: -30,
-                          duration: 900,
-                        });
-                        window.setTimeout(() => {
-                          mapRef.current?.highlightBuildingAt(alert.coords);
-                        }, 700);
-                      }
-                    }
-                    className={`group flex items-center gap-3 px-3 py-2 bg-[var(--card)] hover:brightness-110 transition-all cursor-pointer border border-[var(--border)] ${
-                      alert.id === newAlertId
-                        ? (newAlertActive
-                            ? "opacity-100 translate-y-0 scale-100 duration-500 ease-out new-alert-outline"
-                            : "opacity-0 -translate-y-2 scale-[0.98]")
-                        : ""
-                    } ${
-                      alert.id === WESTWOOD_ALERT.id
-                        ? "border-[oklch(0.78_0.09_15)]/70 bg-[oklch(0.78_0.09_15)]/8"
-                        : ""
-                    }`}
-                  >
-                    <span className={`shrink-0 w-2 h-2 ${sev.dot} ${alert.status === "new" ? "animate-pulse" : ""}`} />
-
-                    <div className="flex-1 min-w-0">
-                      <span className="text-[13px] font-semibold text-[var(--foreground)] tracking-[-0.01em] truncate block">{alert.title}</span>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <span className="text-[10px] text-[var(--muted-foreground)] font-display">{alert.officer}</span>
-                        <span className="text-[var(--border)]">·</span>
-                        <span className="text-[10px] text-[var(--muted-foreground)] truncate">{alert.location}</span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <span className={`text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 ${sev.badge}`}>
-                        {alert.severity}
-                      </span>
-                      <span className={`text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 ${STATUS[alert.status]}`}>
-                        {alert.status}
-                      </span>
-                      <span className="text-[10px] text-[var(--muted-foreground)] font-display">{alert.time}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+              <div className="flex items-center gap-2">
+                <MapChip icon={<Navigation size={14} />} label="3D Nav" />
+                <MapChip icon={<Route size={14} />} label="Routes" />
+                <MapChip icon={<ShieldAlert size={14} />} label="Incident Zone" />
+              </div>
+            </footer>
+          </GlassSurface>
         </div>
       </div>
     </div>
   );
 }
 
-function MapToolbarButton({
+function Pill({ className, children }: { className: string; children: ReactNode }) {
+  return <span className={`rounded-[8px] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${className}`}>{children}</span>;
+}
+
+function MetricChip({
+  label,
+  value,
+}: {
+  label: string;
+  value: number;
+}) {
+  return (
+    <GlassSurface width={84} height={58} borderRadius={11} saturation={1.12} backgroundOpacity={0.08} blur={4} className="alerts-glass">
+      <div className="px-3 py-2">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] font-display text-[var(--muted-foreground)]">{label}</p>
+        <p className="text-[16px] font-bold tracking-[-0.02em] text-[var(--foreground)]">{value}</p>
+      </div>
+    </GlassSurface>
+  );
+}
+
+function GlassActionButton({
+  icon,
+  label,
+  danger = false,
+}: {
+  icon: ReactNode;
+  label: string;
+  danger?: boolean;
+}) {
+  return (
+    <GlassSurface
+      width="100%"
+      height={44}
+      borderRadius={11}
+      saturation={1.12}
+      backgroundOpacity={0.08}
+      blur={4}
+      className={`alerts-glass alerts-glass-press ${danger ? "border-[oklch(0.78_0.09_15)]/60" : ""}`}
+    >
+      <button
+        type="button"
+        className="h-full w-full px-2 text-sm font-semibold flex items-center justify-center gap-2 text-[var(--foreground)] transition-colors"
+      >
+        {icon}
+        <span>{label}</span>
+      </button>
+    </GlassSurface>
+  );
+}
+
+function ControlRailButton({
   icon,
   title,
   onClick,
@@ -388,23 +499,21 @@ function MapToolbarButton({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      title={title}
-      aria-label={title}
-      onClick={onClick}
-      className="h-9 w-9 flex items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-    >
-      {icon}
-    </button>
+    <GlassSurface width={38} height={38} borderRadius={10} saturation={1.12} backgroundOpacity={0.08} blur={4} className="alerts-glass alerts-glass-press">
+      <button type="button" title={title} aria-label={title} onClick={onClick} className="h-full w-full flex items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+        {icon}
+      </button>
+    </GlassSurface>
   );
 }
 
 function MapChip({ icon, label }: { icon: ReactNode; label: string }) {
   return (
-    <div className="border border-[var(--border)] bg-[var(--background)]/82 backdrop-blur-xl px-4 py-2.5 text-[12px] font-display uppercase tracking-widest text-[var(--muted-foreground)] flex items-center gap-2">
-      {icon}
-      <span>{label}</span>
-    </div>
+    <GlassSurface width="auto" height={34} borderRadius={10} saturation={1.1} backgroundOpacity={0.08} blur={4} className="alerts-glass">
+      <div className="flex h-full items-center gap-1.5 px-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] font-display text-[var(--muted-foreground)]">
+        {icon}
+        <span>{label}</span>
+      </div>
+    </GlassSurface>
   );
 }

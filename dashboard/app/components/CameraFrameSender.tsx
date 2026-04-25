@@ -255,14 +255,14 @@ export default function CameraFrameSender({
         {!isStreaming ? (
           <button
             onClick={startStreaming}
-            className="px-4 py-2 text-sm font-semibold rounded-[8px] bg-[var(--muted)] hover:bg-[var(--border)] transition-colors"
+            className="mac-btn mac-btn-primary px-4 py-2 text-sm font-semibold"
           >
             Start WebRTC Stream
           </button>
         ) : (
           <button
             onClick={stopStreaming}
-            className="px-4 py-2 text-sm font-semibold rounded-[8px] bg-[oklch(0.78_0.09_15)]/20 text-[oklch(0.78_0.09_15)] hover:bg-[oklch(0.78_0.09_15)]/30 transition-colors"
+            className="mac-btn mac-btn-danger px-4 py-2 text-sm font-semibold"
           >
             Stop Stream
           </button>

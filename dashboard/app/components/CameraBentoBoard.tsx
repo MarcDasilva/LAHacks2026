@@ -145,10 +145,10 @@ function ModeButton({
   return (
     <button
       onClick={onClick}
-      className={`px-2.5 py-1 text-[10px] uppercase tracking-wider font-semibold font-display transition-colors ${
+      className={`mac-btn px-2.5 py-1 text-[10px] uppercase tracking-wider font-semibold font-display ${
         active
-          ? "bg-white/35 text-black/85"
-          : "bg-transparent text-white/70 hover:text-white hover:bg-white/10"
+          ? "mac-btn-primary text-[var(--foreground)]"
+          : "text-white/80 hover:text-white"
       }`}
       type="button"
     >

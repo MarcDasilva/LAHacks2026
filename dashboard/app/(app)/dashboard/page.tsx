@@ -120,7 +120,7 @@ export default function Dashboard() {
                   placeholder="Describe what you're looking for..."
                   className="flex-1 bg-[var(--muted)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)] transition-all"
                 />
-                <button className="px-5 py-2 bg-[var(--muted)] text-[var(--foreground)] text-sm font-semibold hover:bg-[var(--border)] transition-colors">
+                <button className="mac-btn mac-btn-primary px-5 py-2 text-[var(--foreground)] text-sm font-semibold">
                   Query
                 </button>
               </div>
