@@ -2,7 +2,7 @@ import { PointCloudViewer } from "../../components/ui/PointCloudViewer";
 
 const BRIDGE_URL =
   process.env.NEXT_PUBLIC_BRIDGE_URL ?? "https://6v8yblgimbpc77-8888.proxy.runpod.net";
-const DEMO_SESSION = process.env.NEXT_PUBLIC_DEMO_SESSION ?? "church3";
+const DEMO_SESSION = process.env.NEXT_PUBLIC_DEMO_SESSION ?? "church4";
 
 export default function Dashboard() {
   return (
