@@ -1,0 +1,496 @@
+import Foundation
+import CoreGraphics
+import CoreImage
+import CoreVideo
+
+#if canImport(ZeticMLange)
+import ZeticMLange
+#endif
+
+private struct YOLODetectionLogItem: Codable {
+    let item: String
+    let confidence: Double
+}
+
+private struct YOLOLogBody: Codable {
+    struct YOLOPayload: Codable {
+        let model: String
+        let version: Int?
+        let chunkID: String
+        let detections: [YOLODetectionLogItem]
+        let metadata: [String: String]
+    }
+
+    let timestamp: Date
+    let event: String
+    let yolo: YOLOPayload
+    let metadata: [String: String]
+}
+
+private enum TensorLayout {
+    case nchw
+    case nhwc
+}
+
+private struct YOLODetection {
+    let classID: Int
+    let confidence: Float
+    let x1: Float
+    let y1: Float
+    let x2: Float
+    let y2: Float
+}
+
+final class ZeticMLInferenceEngine: MLInferenceEngine {
+    let modelMetadata: TranscriptChunk.ModelMetadata
+    private let settings: InferenceModelSettings
+    private let debugJSONEncoder: JSONEncoder
+    private let ciContext = CIContext(options: nil)
+    private let yoloInputSize = 640
+    private let scoreThreshold: Float = 0.35
+    private let iouThreshold: Float = 0.45
+
+    private let cocoLabels = [
+        "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
+        "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
+        "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
+        "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard", "tennis racket", "bottle",
+        "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple", "sandwich", "orange",
+        "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch", "potted plant", "bed",
+        "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone", "microwave", "oven",
+        "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush"
+    ]
+
+    init(settings: InferenceModelSettings) {
+        self.settings = settings
+        self.modelMetadata = TranscriptChunk.ModelMetadata(
+            provider: "zetic-ai",
+            name: settings.audioEncoderModelName,
+            version: settings.modelVersion,
+            mode: settings.modelMode,
+            latencyMS: 0
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        self.debugJSONEncoder = encoder
+    }
+
+    func runInference(for chunk: TranscriptChunk.ChunkMetadata, pixelBuffer: CVPixelBuffer, audioSamples: [Float]) async throws -> TranscriptChunk.TranscriptOutput {
+        #if canImport(ZeticMLange)
+        let modelMode: ModelMode
+        switch settings.modelMode.uppercased() {
+        case "RUN_SPEED":
+            modelMode = .RUN_SPEED
+        case "RUN_ACCURACY":
+            modelMode = .RUN_ACCURACY
+        default:
+            modelMode = .RUN_AUTO
+        }
+
+        do {
+            let model = try loadModelWithRetry(
+                candidateKeys: settings.credentialCandidates,
+                chunkID: chunk.chunkID,
+                modelName: settings.audioEncoderModelName,
+                version: settings.modelVersion,
+                mode: modelMode
+            )
+
+            let inputTensorNCHW = try makeYOLOInputTensor(from: pixelBuffer, layout: .nchw)
+
+            let outputs: [Tensor]
+            do {
+                outputs = try model.run(inputs: [inputTensorNCHW])
+            } catch {
+                let inputTensorNHWC = try makeYOLOInputTensor(from: pixelBuffer, layout: .nhwc)
+                outputs = try model.run(inputs: [inputTensorNHWC])
+            }
+
+            let detections = parseYOLODetections(from: outputs, sourcePixelBuffer: pixelBuffer)
+            logDetectionJSON(chunkID: chunk.chunkID, detections: detections)
+
+            let text = detections.isEmpty
+                ? "No objects detected."
+                : detections.map { detection in
+                    "\(label(for: detection.classID)) \(Int(detection.confidence * 100))%"
+                }.joined(separator: ", ")
+            let confidence = Double(detections.first?.confidence ?? 0)
+
+            return TranscriptChunk.TranscriptOutput(
+                text: text,
+                confidence: confidence,
+                tensorCount: outputs.count
+            )
+        } catch {
+            throw makeStageError(
+                stage: "model_run",
+                modelName: settings.audioEncoderModelName,
+                underlying: error
+            )
+        }
+        #else
+        throw NSError(
+            domain: "Responder.Inference",
+            code: -1,
+            userInfo: [NSLocalizedDescriptionKey: "ZeticMLange package is not available in this build."]
+        )
+        #endif
+    }
+
+    #if canImport(ZeticMLange)
+    private func loadModelWithRetry(
+        candidateKeys: [String],
+        chunkID: String,
+        modelName: String,
+        version: Int?,
+        mode: ModelMode
+    ) throws -> ZeticMLangeModel {
+        var lastError: Error?
+        let keys = candidateKeys.isEmpty ? [settings.personalKey] : candidateKeys
+        for (keyIndex, key) in keys.enumerated() {
+            for attempt in 1...3 {
+                do {
+                    return try ZeticMLangeModel(
+                        personalKey: key,
+                        name: modelName,
+                        version: version,
+                        modelMode: mode,
+                        onDownload: { _ in }
+                    )
+                } catch {
+                    lastError = error
+                    if attempt < 3, isLikelyNetworkError(error) {
+                        Thread.sleep(forTimeInterval: Double(attempt))
+                        continue
+                    }
+                }
+            }
+        }
+        throw lastError ?? NSError(domain: "Responder.Inference", code: -20, userInfo: [NSLocalizedDescriptionKey: "Failed to load model."])
+    }
+
+    private func makeYOLOInputTensor(from pixelBuffer: CVPixelBuffer, layout: TensorLayout) throws -> Tensor {
+        let resized = try resizePixelBuffer(pixelBuffer, width: yoloInputSize, height: yoloInputSize)
+        CVPixelBufferLockBaseAddress(resized, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(resized, .readOnly) }
+
+        guard let baseAddress = CVPixelBufferGetBaseAddress(resized) else {
+            throw NSError(domain: "Responder.Inference", code: -30, userInfo: [NSLocalizedDescriptionKey: "Failed to access resized pixel buffer memory."])
+        }
+
+        let width = CVPixelBufferGetWidth(resized)
+        let height = CVPixelBufferGetHeight(resized)
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(resized)
+        let bytes = baseAddress.assumingMemoryBound(to: UInt8.self)
+
+        let rgbCount = width * height * 3
+        var floats = Array(repeating: Float(0), count: rgbCount)
+
+        switch layout {
+        case .nchw:
+            let plane = width * height
+            for y in 0..<height {
+                let row = bytes + y * bytesPerRow
+                for x in 0..<width {
+                    let offset = x * 4
+                    let b = Float(row[offset]) / 255.0
+                    let g = Float(row[offset + 1]) / 255.0
+                    let r = Float(row[offset + 2]) / 255.0
+                    let index = y * width + x
+                    floats[index] = r
+                    floats[plane + index] = g
+                    floats[2 * plane + index] = b
+                }
+            }
+            return makeTensor(from: floats, shape: [1, 3, yoloInputSize, yoloInputSize])
+
+        case .nhwc:
+            for y in 0..<height {
+                let row = bytes + y * bytesPerRow
+                for x in 0..<width {
+                    let offset = x * 4
+                    let b = Float(row[offset]) / 255.0
+                    let g = Float(row[offset + 1]) / 255.0
+                    let r = Float(row[offset + 2]) / 255.0
+                    let index = (y * width + x) * 3
+                    floats[index] = r
+                    floats[index + 1] = g
+                    floats[index + 2] = b
+                }
+            }
+            return makeTensor(from: floats, shape: [1, yoloInputSize, yoloInputSize, 3])
+        }
+    }
+
+    private func makeTensor(from floats: [Float], shape: [Int]) -> Tensor {
+        let data = floats.withUnsafeBufferPointer { Data(buffer: $0) }
+        return Tensor(data: data, dataType: BuiltinDataType.float32, shape: shape)
+    }
+
+    private func resizePixelBuffer(_ pixelBuffer: CVPixelBuffer, width: Int, height: Int) throws -> CVPixelBuffer {
+        var resizedBuffer: CVPixelBuffer?
+        let attributes: [CFString: Any] = [
+            kCVPixelBufferCGImageCompatibilityKey: true,
+            kCVPixelBufferCGBitmapContextCompatibilityKey: true,
+            kCVPixelBufferMetalCompatibilityKey: true,
+            kCVPixelBufferIOSurfacePropertiesKey: [:],
+            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey: width,
+            kCVPixelBufferHeightKey: height
+        ]
+        let status = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            width,
+            height,
+            kCVPixelFormatType_32BGRA,
+            attributes as CFDictionary,
+            &resizedBuffer
+        )
+        guard status == kCVReturnSuccess, let resizedBuffer else {
+            throw NSError(domain: "Responder.Inference", code: -31, userInfo: [NSLocalizedDescriptionKey: "Failed to allocate resized pixel buffer."])
+        }
+
+        let sourceImage = CIImage(cvPixelBuffer: pixelBuffer)
+        let sx = CGFloat(width) / sourceImage.extent.width
+        let sy = CGFloat(height) / sourceImage.extent.height
+        let resizedImage = sourceImage.transformed(by: CGAffineTransform(scaleX: sx, y: sy))
+        ciContext.render(resizedImage, to: resizedBuffer)
+        return resizedBuffer
+    }
+
+    private func parseYOLODetections(from outputs: [Tensor], sourcePixelBuffer: CVPixelBuffer) -> [YOLODetection] {
+        guard let candidateTensor = outputs.max(by: { $0.data.count < $1.data.count }) else {
+            return []
+        }
+
+        let shape = candidateTensor.shape
+        guard !shape.isEmpty else { return [] }
+        let values = tensorToFloatArray(candidateTensor)
+        guard !values.isEmpty else { return [] }
+
+        let sourceWidth = Float(CVPixelBufferGetWidth(sourcePixelBuffer))
+        let sourceHeight = Float(CVPixelBufferGetHeight(sourcePixelBuffer))
+
+        let detections: [YOLODetection]
+        if shape.count == 3 && shape[0] == 1 {
+            let d1 = shape[1]
+            let d2 = shape[2]
+            if d1 <= 256 && d2 > 100 {
+                detections = decodeDetections(values: values, anchors: d2, channels: d1, channelsFirst: true, sourceWidth: sourceWidth, sourceHeight: sourceHeight)
+            } else if d2 <= 256 && d1 > 100 {
+                detections = decodeDetections(values: values, anchors: d1, channels: d2, channelsFirst: false, sourceWidth: sourceWidth, sourceHeight: sourceHeight)
+            } else {
+                detections = []
+            }
+        } else if shape.count == 2 {
+            let d0 = shape[0]
+            let d1 = shape[1]
+            if d1 <= 256 && d0 > 100 {
+                detections = decodeDetections(values: values, anchors: d0, channels: d1, channelsFirst: false, sourceWidth: sourceWidth, sourceHeight: sourceHeight)
+            } else if d0 <= 256 && d1 > 100 {
+                detections = decodeDetections(values: values, anchors: d1, channels: d0, channelsFirst: true, sourceWidth: sourceWidth, sourceHeight: sourceHeight)
+            } else {
+                detections = []
+            }
+        } else {
+            detections = []
+        }
+
+        return nonMaximumSuppression(detections)
+    }
+
+    private func decodeDetections(
+        values: [Float],
+        anchors: Int,
+        channels: Int,
+        channelsFirst: Bool,
+        sourceWidth: Float,
+        sourceHeight: Float
+    ) -> [YOLODetection] {
+        guard channels > 5 else { return [] }
+        var decoded: [YOLODetection] = []
+        decoded.reserveCapacity(64)
+
+        for anchor in 0..<anchors {
+            let cx = value(values, anchor: anchor, channel: 0, anchors: anchors, channels: channels, channelsFirst: channelsFirst)
+            let cy = value(values, anchor: anchor, channel: 1, anchors: anchors, channels: channels, channelsFirst: channelsFirst)
+            let w = value(values, anchor: anchor, channel: 2, anchors: anchors, channels: channels, channelsFirst: channelsFirst)
+            let h = value(values, anchor: anchor, channel: 3, anchors: anchors, channels: channels, channelsFirst: channelsFirst)
+
+            var bestClass = 0
+            var bestScore: Float = 0
+            for classID in 0..<(channels - 4) {
+                let score = value(values, anchor: anchor, channel: classID + 4, anchors: anchors, channels: channels, channelsFirst: channelsFirst)
+                if score > bestScore {
+                    bestScore = score
+                    bestClass = classID
+                }
+            }
+            if bestScore < scoreThreshold { continue }
+
+            let box = convertBox(cx: cx, cy: cy, w: w, h: h, sourceWidth: sourceWidth, sourceHeight: sourceHeight)
+            decoded.append(
+                YOLODetection(
+                    classID: bestClass,
+                    confidence: bestScore,
+                    x1: box.x1,
+                    y1: box.y1,
+                    x2: box.x2,
+                    y2: box.y2
+                )
+            )
+        }
+
+        return decoded.sorted { $0.confidence > $1.confidence }
+    }
+
+    private func value(
+        _ values: [Float],
+        anchor: Int,
+        channel: Int,
+        anchors: Int,
+        channels: Int,
+        channelsFirst: Bool
+    ) -> Float {
+        let index: Int
+        if channelsFirst {
+            index = channel * anchors + anchor
+        } else {
+            index = anchor * channels + channel
+        }
+        guard index >= 0, index < values.count else { return 0 }
+        return values[index]
+    }
+
+    private func convertBox(cx: Float, cy: Float, w: Float, h: Float, sourceWidth: Float, sourceHeight: Float) -> (x1: Float, y1: Float, x2: Float, y2: Float) {
+        let normalized = max(max(abs(cx), abs(cy)), max(abs(w), abs(h))) <= 2.0
+        let inX = normalized ? cx * Float(yoloInputSize) : cx
+        let inY = normalized ? cy * Float(yoloInputSize) : cy
+        let inW = normalized ? w * Float(yoloInputSize) : w
+        let inH = normalized ? h * Float(yoloInputSize) : h
+
+        let scaleX = sourceWidth / Float(yoloInputSize)
+        let scaleY = sourceHeight / Float(yoloInputSize)
+
+        var x1 = (inX - inW / 2) * scaleX
+        var y1 = (inY - inH / 2) * scaleY
+        var x2 = (inX + inW / 2) * scaleX
+        var y2 = (inY + inH / 2) * scaleY
+
+        x1 = max(0, min(x1, sourceWidth))
+        y1 = max(0, min(y1, sourceHeight))
+        x2 = max(0, min(x2, sourceWidth))
+        y2 = max(0, min(y2, sourceHeight))
+        return (x1, y1, x2, y2)
+    }
+
+    private func nonMaximumSuppression(_ detections: [YOLODetection]) -> [YOLODetection] {
+        var kept: [YOLODetection] = []
+        let sorted = detections.sorted { $0.confidence > $1.confidence }
+
+        for candidate in sorted {
+            var overlaps = false
+            for existing in kept where iou(candidate, existing) > iouThreshold {
+                overlaps = true
+                break
+            }
+            if !overlaps {
+                kept.append(candidate)
+            }
+        }
+
+        return kept
+    }
+
+    private func iou(_ a: YOLODetection, _ b: YOLODetection) -> Float {
+        let interX1 = max(a.x1, b.x1)
+        let interY1 = max(a.y1, b.y1)
+        let interX2 = min(a.x2, b.x2)
+        let interY2 = min(a.y2, b.y2)
+        let interW = max(0, interX2 - interX1)
+        let interH = max(0, interY2 - interY1)
+        let interArea = interW * interH
+        let areaA = max(0, a.x2 - a.x1) * max(0, a.y2 - a.y1)
+        let areaB = max(0, b.x2 - b.x1) * max(0, b.y2 - b.y1)
+        let denom = areaA + areaB - interArea
+        guard denom > 0 else { return 0 }
+        return interArea / denom
+    }
+
+    private func tensorToFloatArray(_ tensor: Tensor) -> [Float] {
+        tensor.data.withUnsafeBytes { rawBuffer -> [Float] in
+            let count = tensor.data.count / MemoryLayout<Float>.size
+            guard let base = rawBuffer.bindMemory(to: Float.self).baseAddress, count > 0 else {
+                return []
+            }
+            return Array(UnsafeBufferPointer(start: base, count: count))
+        }
+    }
+
+    private func label(for classID: Int) -> String {
+        if classID >= 0 && classID < cocoLabels.count {
+            return cocoLabels[classID]
+        }
+        return "class_\(classID)"
+    }
+
+    private func logDetectionJSON(chunkID: String, detections: [YOLODetection]) {
+        let payload = YOLOLogBody(
+            timestamp: Date(),
+            event: "yolo_detection",
+            yolo: YOLOLogBody.YOLOPayload(
+                model: settings.audioEncoderModelName,
+                version: settings.modelVersion,
+                chunkID: chunkID,
+                detections: detections.map { detection in
+                    YOLODetectionLogItem(
+                        item: label(for: detection.classID),
+                        confidence: Double(detection.confidence)
+                    )
+                },
+                metadata: [
+                    "scoreThreshold": "\(scoreThreshold)",
+                    "iouThreshold": "\(iouThreshold)"
+                ]
+            ),
+            metadata: [
+                "schemaVersion": "1",
+                "source": "Responder.YOLO"
+            ]
+        )
+        guard let jsonData = try? debugJSONEncoder.encode(payload),
+              let json = String(data: jsonData, encoding: .utf8) else {
+            return
+        }
+        print(json)
+    }
+
+    private func isLikelyNetworkError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        let text = "\(nsError.domain) \(nsError.localizedDescription)".lowercased()
+        return text.contains("network") || text.contains("timed out") || text.contains("offline")
+    }
+
+    private func keyPrefix(_ key: String) -> String {
+        String(key.prefix(8))
+    }
+
+    private func makeStageError(stage: String, modelName: String, underlying: Error) -> NSError {
+        let nsError = underlying as NSError
+        var guidance = "Check model availability and key permissions in Melange dashboard."
+        if nsError.domain.localizedCaseInsensitiveContains("NetworkError") || nsError.localizedDescription.localizedCaseInsensitiveContains("NetworkError") {
+            guidance = "Network/auth failure while loading model. Confirm internet access and set a valid ZETIC_TOKEN or ZETIC_PERSONAL_KEY in the Xcode Run scheme."
+        }
+
+        return NSError(
+            domain: "Responder.Inference",
+            code: nsError.code == 0 ? -10 : nsError.code,
+            userInfo: [
+                NSLocalizedDescriptionKey:
+                    "[\(stage)] Failed for model '\(modelName)': \(nsError.localizedDescription). \(guidance)"
+            ]
+        )
+    }
+    #endif
+}
