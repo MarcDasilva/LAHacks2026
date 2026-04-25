@@ -75,7 +75,7 @@ export default function AlertsClient() {
               <h1 className="text-xl font-bold tracking-[-0.02em] text-[var(--foreground)]">Alerts</h1>
             </div>
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] bg-[var(--muted)]">
-              <span className="w-1.5 h-1.5 rounded-full bg-[oklch(0.82_0.09_160)] animate-pulse" />
+              <span className="w-1.5 h-1.5 rounded-full bg-white/60 animate-pulse" />
               <span className="text-[11px] font-mono text-[var(--muted-foreground)] uppercase tracking-widest">live</span>
             </div>
           </div>

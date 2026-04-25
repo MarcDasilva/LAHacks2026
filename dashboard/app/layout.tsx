@@ -1,22 +1,56 @@
+import React from "react";
 import type { Metadata } from "next";
-import { Manrope, Geist_Mono } from "next/font/google";
+import {
+  Instrument_Sans,
+  Instrument_Serif,
+  JetBrains_Mono,
+} from "next/font/google";
 import "./globals.css";
 
-const manrope = Manrope({
-  variable: "--font-manrope",
+const instrumentSans = Instrument_Sans({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-instrument",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const instrumentSerif = Instrument_Serif({
   subsets: ["latin"],
+  weight: "400",
+  variable: "--font-instrument-serif",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-jetbrains",
 });
 
 export const metadata: Metadata = {
-  title: "Vigil",
-  description: "LAHacks 2026",
-  icons: { icon: "data:," },
+  title: "IMPULSE | Real-Time Product Command Center",
+  description:
+    "IMPULSE helps teams capture live operational signals, prioritize what matters, and coordinate response from one real-time workspace.",
+  keywords: [
+    "IMPULSE",
+    "incident response",
+    "command center",
+    "live alerts",
+    "first responder intelligence",
+    "real-time operations",
+    "emergency coordination",
+  ],
+  openGraph: {
+    title: "IMPULSE | Real-Time Product Command Center",
+    description:
+      "Unify alerts, priorities, and execution in one system built for high-stakes operations.",
+    type: "website",
+    siteName: "IMPULSE",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "IMPULSE | Real-Time Product Command Center",
+    description:
+      "Turn real-time field signals into aligned, decisive team action.",
+  },
+  applicationName: "IMPULSE",
+  category: "technology",
 };
 
 export default function RootLayout({
@@ -25,8 +59,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${manrope.variable} ${geistMono.variable} h-full antialiased`}>
-      <body suppressHydrationWarning className="h-screen overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
+    <html lang="en">
+      <body
+        className={`${instrumentSans.variable} ${instrumentSerif.variable} ${jetbrainsMono.variable} font-sans antialiased`}
+      >
         {children}
       </body>
     </html>

@@ -86,7 +86,7 @@ function ModeButton({
       onClick={onClick}
       className={`rounded-[8px] px-2.5 py-1 text-[10px] uppercase tracking-wider font-semibold font-mono transition-colors ${
         active
-          ? "bg-[oklch(0.82_0.09_160)]/30 text-white"
+          ? "bg-white/35 text-black/85"
           : "bg-transparent text-white/70 hover:text-white hover:bg-white/10"
       }`}
       type="button"
@@ -99,7 +99,7 @@ function ModeButton({
 function FeedBadge({ roomId, highlighted = false }: { roomId: string; highlighted?: boolean }) {
   return (
     <div className={`absolute left-2 top-2 z-20 rounded-[8px] px-2 py-1 text-[10px] font-mono uppercase tracking-widest backdrop-blur-sm ${
-      highlighted ? "bg-[oklch(0.82_0.09_160)]/35 text-white" : "bg-black/45 text-white/90"
+      highlighted ? "bg-white/35 text-black/85" : "bg-black/45 text-white/70"
     }`}>
       {roomId}
     </div>

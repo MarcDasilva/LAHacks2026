@@ -17,7 +17,7 @@ export default function Navbar() {
       {/* Top bar */}
       <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 h-[57px] bg-[var(--background)]/80 backdrop-blur-xl border-b border-[var(--border)]">
         <Link href="/" className="text-[var(--foreground)] font-bold text-2xl tracking-[-0.01em] uppercase hover:opacity-80 transition-opacity">
-          Vigil
+          IMPULSE
         </Link>
         <button className="w-10 h-10 rounded-[8px] bg-[var(--muted)] flex items-center justify-center text-sm font-semibold text-[var(--foreground)] hover:bg-[var(--border)] transition-colors">
           JD
