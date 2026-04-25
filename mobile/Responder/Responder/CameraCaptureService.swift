@@ -44,6 +44,8 @@ final class CameraCaptureService: NSObject, ObservableObject {
     @Published private(set) var isSessionRunning = false
     @Published private(set) var authorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
     @Published private(set) var audioAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+    @Published private(set) var isAudioCaptureConfigured = false
+    @Published private(set) var audioSetupErrorMessage: String?
 
     let session = AVCaptureSession()
     weak var delegate: CameraCaptureServiceDelegate?
@@ -76,7 +78,22 @@ final class CameraCaptureService: NSObject, ObservableObject {
             videoGranted = false
         }
 
-        // Video-only inference path (YOLO) should not be blocked by microphone permission.
+        switch currentAudioStatus {
+        case .authorized:
+            break
+        case .notDetermined:
+            let granted = await AVCaptureDevice.requestAccess(for: .audio)
+            await MainActor.run {
+                audioAuthorizationStatus = granted ? .authorized : .denied
+            }
+        case .denied, .restricted:
+            break
+        @unknown default:
+            break
+        }
+
+        // YOLO should still run even if mic access is denied.
+        print("[Responder][AudioCapture] requestPermission video=\(videoGranted) audioStatus=\(AVCaptureDevice.authorizationStatus(for: .audio).rawValue)")
         return videoGranted
     }
 
@@ -119,7 +136,7 @@ final class CameraCaptureService: NSObject, ObservableObject {
         try audioSession.setCategory(
             .playAndRecord,
             mode: .measurement,
-            options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP]
+            options: [.defaultToSpeaker, .allowBluetoothHFP, .allowBluetoothA2DP]
         )
         try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
     }
@@ -171,6 +188,45 @@ final class CameraCaptureService: NSObject, ObservableObject {
 
         if let connection = videoOutput.connection(with: .video), connection.isVideoOrientationSupported {
             connection.videoOrientation = currentVideoOrientation()
+        }
+
+        let currentAudioStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        if currentAudioStatus == .authorized,
+           let microphone = AVCaptureDevice.default(for: .audio) {
+            do {
+                try configureAudioSession()
+                let audioInput = try AVCaptureDeviceInput(device: microphone)
+                if session.canAddInput(audioInput) {
+                    session.addInput(audioInput)
+                }
+
+                let audioOutput = AVCaptureAudioDataOutput()
+                audioOutput.setSampleBufferDelegate(self, queue: audioOutputQueue)
+                if session.canAddOutput(audioOutput) {
+                    session.addOutput(audioOutput)
+                }
+                DispatchQueue.main.async {
+                    self.isAudioCaptureConfigured = true
+                    self.audioSetupErrorMessage = nil
+                }
+                print("[Responder][AudioCapture] Audio pipeline configured successfully")
+            } catch {
+                print("[Responder][AudioCapture][ERROR] Audio setup failed: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    self.isAudioCaptureConfigured = false
+                    self.audioSetupErrorMessage = "Microphone pipeline setup failed: \(error.localizedDescription)"
+                }
+            }
+        } else {
+            print("[Responder][AudioCapture][ERROR] Audio pipeline unavailable. status=\(currentAudioStatus.rawValue)")
+            DispatchQueue.main.async {
+                self.isAudioCaptureConfigured = false
+                if currentAudioStatus != .authorized {
+                    self.audioSetupErrorMessage = "Microphone permission not granted."
+                } else {
+                    self.audioSetupErrorMessage = "Microphone device unavailable."
+                }
+            }
         }
 
         session.commitConfiguration()

@@ -9,7 +9,7 @@ settings:
 packages:
   ZeticMLangeiOS:
     url: https://github.com/zetic-ai/ZeticMLangeiOS.git
-    exactVersion: 1.6.0
+    exactVersion: 1.7.0-beta.1
 targets:
   Responder:
     type: application
