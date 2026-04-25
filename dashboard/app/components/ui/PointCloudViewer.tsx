@@ -230,55 +230,28 @@ export function PointCloudViewer({
       const cloud = new THREE.Points(geom, mat);
       scene.add(cloud);
 
-      // Frustum pyramids: 5 verts per frame (apex + 4 base corners), 8 line segments.
+      // Camera path: a single fluorescent-green tube connecting all camera centers in order.
       let frustumGroup: any = null;
-      if (extrinsics && numFrames > 0) {
-        const s = maxExtent * 0.04; // pyramid scale
-        const fpos = new Float32Array(numFrames * 8 * 2 * 3); // 8 segments × 2 verts × 3 coords
-        const fcol = new Float32Array(numFrames * 8 * 2 * 3);
-        // Edges (pairs of corner indices, 0=apex, 1..4=base corners CCW):
-        const edges = [
-          [0, 1], [0, 2], [0, 3], [0, 4],
-          [1, 2], [2, 3], [3, 4], [4, 1],
-        ];
-        const corners = [
-          [0, 0, 0],
-          [-s, -s, s],
-          [s, -s, s],
-          [s, s, s],
-          [-s, s, s],
-        ];
-        let wo = 0;
+      if (extrinsics && numFrames >= 2) {
+        const pts: THREE.Vector3[] = [];
         for (let i = 0; i < numFrames; i++) {
-          const o = i * 12;
-          const r00 = extrinsics![o + 0], r01 = extrinsics![o + 1], r02 = extrinsics![o + 2];
-          const r10 = extrinsics![o + 4], r11 = extrinsics![o + 5], r12 = extrinsics![o + 6];
-          const r20 = extrinsics![o + 8], r21 = extrinsics![o + 9], r22 = extrinsics![o + 10];
-          const tcx = camCenters[i * 3];
-          const tcy = camCenters[i * 3 + 1];
-          const tcz = camCenters[i * 3 + 2];
-          // World corner = R^T @ cam_corner + cam_center.
-          const worldCorners = corners.map(([x, y, z]) => [
-            r00 * x + r10 * y + r20 * z + tcx,
-            r01 * x + r11 * y + r21 * z + tcy,
-            r02 * x + r12 * y + r22 * z + tcz,
-          ]);
-          const [cr, cg, cb] = viridis(numFrames > 1 ? i / (numFrames - 1) : 0);
-          for (const [a, b] of edges) {
-            const pa = worldCorners[a];
-            const pb = worldCorners[b];
-            fpos[wo + 0] = pa[0]; fpos[wo + 1] = pa[1]; fpos[wo + 2] = pa[2];
-            fpos[wo + 3] = pb[0]; fpos[wo + 4] = pb[1]; fpos[wo + 5] = pb[2];
-            fcol[wo + 0] = cr; fcol[wo + 1] = cg; fcol[wo + 2] = cb;
-            fcol[wo + 3] = cr; fcol[wo + 4] = cg; fcol[wo + 5] = cb;
-            wo += 6;
-          }
+          pts.push(new THREE.Vector3(
+            camCenters[i * 3],
+            camCenters[i * 3 + 1],
+            camCenters[i * 3 + 2],
+          ));
         }
-        const fgeom = new THREE.BufferGeometry();
-        fgeom.setAttribute("position", new THREE.BufferAttribute(fpos, 3));
-        fgeom.setAttribute("color", new THREE.BufferAttribute(fcol, 3));
-        const fmat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85 });
-        frustumGroup = new THREE.LineSegments(fgeom, fmat);
+        const curve = new THREE.CatmullRomCurve3(pts, false, "centripetal");
+        const tubularSegments = Math.min(512, Math.max(64, numFrames * 4));
+        const tubeRadius = maxExtent * 0.006;
+        const fgeom = new THREE.TubeGeometry(curve, tubularSegments, tubeRadius, 8, false);
+        const fmat = new THREE.MeshBasicMaterial({
+          color: 0x39ff14, // fluorescent green
+          transparent: true,
+          opacity: 0.95,
+          toneMapped: false, // keep the neon punch
+        });
+        frustumGroup = new THREE.Mesh(fgeom, fmat);
         scene.add(frustumGroup);
       }
 
