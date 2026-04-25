@@ -71,6 +71,67 @@ def _closed_form_inverse_se3(extrinsic):
     return inv
 
 
+def process_frame(
+    depth_frame,
+    extrinsic_frame,
+    intrinsic_frame,
+    color_frame,
+    conf_frame=None,
+    conf_threshold: float = 1.0,
+    downsample: int = 10,
+):
+    """Single-frame unproject + filter + downsample. Returns (xyz, rgb) as
+    contiguous float32 numpy arrays of shape (M, 3) each.
+
+    Shared between the batch exporter (export_cloud) and the streaming
+    inference path (inference_runner) so behavior stays in lockstep.
+
+    Inputs are already-numpy-ish (anything that np.asarray can handle):
+      depth_frame:     (H, W) or (H, W, 1)
+      extrinsic_frame: (3, 4)
+      intrinsic_frame: (3, 3)
+      color_frame:     (H, W, 3) RGB float
+      conf_frame:      (H, W) or None
+    """
+    import numpy as np
+
+    depth = np.asarray(depth_frame)
+    if depth.ndim == 3 and depth.shape[-1] == 1:
+        depth = depth.squeeze(-1)
+    extr = np.asarray(extrinsic_frame)
+    intr = np.asarray(intrinsic_frame)
+    col = np.asarray(color_frame).reshape(-1, 3).astype(np.float32, copy=False)
+    c = np.asarray(conf_frame).reshape(-1) if conf_frame is not None else None
+
+    pts = _depth_to_world_points(depth, extr, intr).reshape(-1, 3)
+
+    valid = np.isfinite(pts).all(axis=1)
+    if not valid.all():
+        pts = pts[valid]
+        col = col[valid]
+        if c is not None:
+            c = c[valid]
+
+    if np.isnan(col).any():
+        col = np.zeros_like(col)
+        col[:, 2] = 1.0
+
+    if c is not None:
+        mask = c > conf_threshold
+        pts = pts[mask]
+        col = col[mask]
+
+    if downsample > 1 and len(pts) > 0:
+        idx = np.arange(0, len(pts), downsample)
+        pts = pts[idx]
+        col = col[idx]
+
+    return (
+        pts.astype(np.float32, copy=False),
+        col.astype(np.float32, copy=False),
+    )
+
+
 def _depth_to_world_points(depth_map, extrinsic, intrinsic):
     """Unproject (H,W) depth → (H,W,3) world points. Matches upstream's
     geometry.depth_to_world_coords_points.
@@ -150,36 +211,19 @@ def export_cloud(
     total_kept = 0
 
     for i in range(n_frames):
-        # Unproject depth → world for this frame, matching upstream geometry.
-        pts = _depth_to_world_points(depth_np[i], extr_np[i], intr_np[i]).reshape(-1, 3)
-        col = colors_all[i].reshape(-1, 3).numpy()
-        c = conf_np[i].reshape(-1) if conf_np is not None else None
-        total_initial += len(pts)
-
-        valid = np.isfinite(pts).all(axis=1)
-        if not valid.all():
-            pts = pts[valid]
-            col = col[valid]
-            if c is not None:
-                c = c[valid]
-
-        if np.isnan(col).any():
-            col = np.zeros_like(col)
-            col[:, 2] = 1.0  # blue fallback
-
-        if c is not None:
-            mask = c > conf_threshold
-            pts = pts[mask]
-            col = col[mask]
-
-        if downsample > 1 and len(pts) > 0:
-            idx = np.arange(0, len(pts), downsample)
-            pts = pts[idx]
-            col = col[idx]
-
+        total_initial += depth_np[i].size
+        pts, col = process_frame(
+            depth_np[i],
+            extr_np[i],
+            intr_np[i],
+            colors_all[i].numpy(),
+            conf_np[i] if conf_np is not None else None,
+            conf_threshold=conf_threshold,
+            downsample=downsample,
+        )
         if len(pts) > 0:
-            xyz_chunks.append(pts.astype(np.float32, copy=False))
-            rgb_chunks.append(col.astype(np.float32, copy=False))
+            xyz_chunks.append(pts)
+            rgb_chunks.append(col)
             total_kept += len(pts)
 
     log.info(
