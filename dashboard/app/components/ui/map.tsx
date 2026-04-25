@@ -18,7 +18,7 @@ type MapProps = {
   bearing?: number;
 };
 
-const DEFAULT_STYLE = "https://tiles.openfreemap.org/styles/dark";
+const DEFAULT_STYLE = "https://tiles.openfreemap.org/styles/positron";
 const BUILDINGS_LAYER_ID = "impulse-3d-buildings";
 const BUILDING_SOURCE_ID = "openfreemap";
 const BUILDING_SOURCE_LAYER = "building";
@@ -271,9 +271,9 @@ const MapComponent = forwardRef<MapRef, MapProps>(function MapComponent(
                 "interpolate",
                 ["linear"],
                 ["get", "render_height"],
-                0, "#1f2937",
-                200, "#273449",
-                400, "#31435d",
+                0, "#fafbfd",
+                200, "#f6f8fb",
+                400, "#f1f4f8",
               ],
               "fill-extrusion-height": [
                 "interpolate",
