@@ -14,8 +14,8 @@ export default function Dashboard() {
 
           {/* ── Left: live body cam feed ── */}
           <Panel className="row-span-full flex flex-col min-h-0">
-            <div className="flex-1 bg-[var(--hero)] overflow-hidden relative min-h-0 rounded-[14px]">
-              <LivePlaceholder />
+            <div className="flex-1 overflow-hidden relative min-h-0 rounded-[14px]">
+              <StreamPanel />
             </div>
           </Panel>
 
@@ -24,8 +24,8 @@ export default function Dashboard() {
 
             {/* Top: 3D splatting render */}
             <Panel className="flex flex-col min-h-0">
-              <div className="flex-1 bg-[var(--hero)] overflow-hidden relative min-h-0 rounded-[14px]">
-                <RenderPlaceholder />
+              <div className="flex-1 overflow-hidden relative min-h-0 rounded-[14px]">
+                <RenderPanel />
               </div>
             </Panel>
 
@@ -79,29 +79,33 @@ function PanelHeader({ children }: { children: React.ReactNode }) {
   );
 }
 
-function LivePlaceholder() {
-  return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-      <div className="flex items-center gap-2">
+function StreamPanel() {
+  const ready = false; // swap to true when stream is connected
+  if (!ready) return (
+    <div className="absolute inset-0 border border-[var(--border)] rounded-[14px] flex flex-col items-end justify-end p-3 gap-1">
+      <div className="flex items-center gap-1.5">
         <span className="w-1.5 h-1.5 rounded-full bg-[oklch(0.78_0.09_15)] animate-pulse" />
         <span className="text-[10px] text-[var(--muted-foreground)] font-mono uppercase tracking-widest">live</span>
       </div>
       <span className="text-[10px] text-[var(--muted-foreground)] font-mono">cam_01</span>
     </div>
   );
+  return null; // replace with <video> when ready
 }
 
-function RenderPlaceholder() {
-  return (
-    <div className="absolute inset-0 flex items-center justify-center">
+function RenderPanel() {
+  const ready = false; // swap to true when splat data arrives
+  if (!ready) return (
+    <div className="absolute inset-0 border border-[var(--border)] rounded-[14px] flex items-end justify-end p-3">
       <span className="text-[10px] text-[var(--muted-foreground)] font-mono">no data</span>
     </div>
   );
+  return null;
 }
 
 function VideoChunk({ index }: { index: number }) {
   return (
-    <div className="shrink-0 w-36 h-full bg-[var(--hero)] border border-[var(--border)] rounded-[12px] flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:border-[var(--lavender)]/40 hover:shadow-lg hover:shadow-[var(--lavender)]/5 transition-all">
+    <div className="shrink-0 w-36 h-full border border-[var(--border)] rounded-[12px] flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:border-[var(--lavender)]/40 transition-all">
       <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4 text-[var(--muted-foreground)]">
         <polygon points="5,3 19,12 5,21" fill="currentColor" />
       </svg>

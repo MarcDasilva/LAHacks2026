@@ -4,7 +4,10 @@ import { useRef } from "react";
 import dynamic from "next/dynamic";
 import type { MapRef } from "@/app/components/ui/map";
 
-const Map = dynamic(() => import("@/app/components/ui/map").then(m => m.Map), { ssr: false });
+const Map = dynamic(() => import("@/app/components/ui/map").then(m => m.Map), {
+  ssr: false,
+  loading: () => <div className="absolute inset-0 border border-[var(--border)] rounded-[16px]" />,
+});
 
 const ALERTS = [
   {
