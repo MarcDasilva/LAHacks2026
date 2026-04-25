@@ -5,8 +5,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 type CameraFrameSenderProps = {
   roomId?: string;
   serverUrl?: string;
-  fps?: number;
-  jpegQuality?: number;
+  maxWidth?: number;
+  maxHeight?: number;
+  maxFps?: number;
+};
+
+type SignalPayload = {
+  description?: RTCSessionDescriptionInit;
+  candidate?: RTCIceCandidateInit;
 };
 
 function getDefaultServerUrl() {
@@ -15,23 +21,29 @@ function getDefaultServerUrl() {
   return `${proto}://${window.location.hostname}:8787`;
 }
 
+function createPeerConnection() {
+  return new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  });
+}
+
 export default function CameraFrameSender({
   roomId = "main-camera",
   serverUrl,
-  fps = 10,
-  jpegQuality = 0.7,
+  maxWidth = 1280,
+  maxHeight = 720,
+  maxFps = 24,
 }: CameraFrameSenderProps) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [status, setStatus] = useState("idle");
-  const [framesSent, setFramesSent] = useState(0);
+  const [viewerCount, setViewerCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const timerRef = useRef<number | null>(null);
-  const isEncodingRef = useRef(false);
+  const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const stoppingRef = useRef(false);
 
   const resolvedServerUrl = useMemo(
@@ -39,18 +51,66 @@ export default function CameraFrameSender({
     [serverUrl],
   );
 
+  const removeViewerPeer = useCallback((viewerId: string) => {
+    const pc = peerConnectionsRef.current.get(viewerId);
+    if (pc) {
+      pc.close();
+      peerConnectionsRef.current.delete(viewerId);
+      pendingIceCandidatesRef.current.delete(viewerId);
+      setViewerCount(peerConnectionsRef.current.size);
+    }
+  }, []);
+
+  const sendSignal = useCallback((targetId: string, data: SignalPayload) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: "signal", targetId, data }));
+  }, []);
+
+  const setupPeerForViewer = useCallback(async (viewerId: string) => {
+    if (!streamRef.current) return;
+    if (peerConnectionsRef.current.has(viewerId)) return;
+
+    const pc = createPeerConnection();
+    peerConnectionsRef.current.set(viewerId, pc);
+    setViewerCount(peerConnectionsRef.current.size);
+
+    for (const track of streamRef.current.getTracks()) {
+      pc.addTrack(track, streamRef.current);
+    }
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        sendSignal(viewerId, { candidate: event.candidate.toJSON() });
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      const state = pc.connectionState;
+      if (state === "failed" || state === "closed" || state === "disconnected") {
+        removeViewerPeer(viewerId);
+      }
+    };
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    sendSignal(viewerId, { description: offer });
+  }, [removeViewerPeer, sendSignal]);
+
   const stopStreaming = useCallback(() => {
     stoppingRef.current = true;
-
-    if (timerRef.current) {
-      window.clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
 
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
     }
+
+    for (const pc of peerConnectionsRef.current.values()) {
+      pc.close();
+    }
+    peerConnectionsRef.current.clear();
+    pendingIceCandidatesRef.current.clear();
+    setViewerCount(0);
 
     if (streamRef.current) {
       for (const track of streamRef.current.getTracks()) track.stop();
@@ -69,11 +129,15 @@ export default function CameraFrameSender({
     try {
       stoppingRef.current = false;
       setError(null);
-      setFramesSent(0);
       setStatus("requesting camera");
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: {
+          facingMode: "environment",
+          width: { ideal: maxWidth },
+          height: { ideal: maxHeight },
+          frameRate: { ideal: maxFps },
+        },
         audio: false,
       });
       streamRef.current = stream;
@@ -91,6 +155,66 @@ export default function CameraFrameSender({
         setIsStreaming(true);
       };
 
+      ws.onmessage = async (event) => {
+        if (typeof event.data !== "string") return;
+
+        let payload: {
+          type?: string;
+          viewerId?: string;
+          fromId?: string;
+          data?: SignalPayload;
+        };
+        try {
+          payload = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+
+        if (payload.type === "viewer-joined" && payload.viewerId) {
+          await setupPeerForViewer(payload.viewerId);
+          return;
+        }
+
+        if (payload.type === "viewer-left" && payload.viewerId) {
+          removeViewerPeer(payload.viewerId);
+          return;
+        }
+
+        if (payload.type === "signal" && payload.fromId && payload.data) {
+          const pc = peerConnectionsRef.current.get(payload.fromId);
+          if (!pc) return;
+
+          if (payload.data.description) {
+            await pc.setRemoteDescription(payload.data.description);
+            const queued = pendingIceCandidatesRef.current.get(payload.fromId);
+            if (queued && queued.length > 0) {
+              for (const candidate of queued) {
+                try {
+                  await pc.addIceCandidate(candidate);
+                } catch {
+                  // Ignore stale ICE candidates after reconnect.
+                }
+              }
+              pendingIceCandidatesRef.current.delete(payload.fromId);
+            }
+          }
+
+          if (payload.data.candidate) {
+            if (pc.remoteDescription) {
+              try {
+                await pc.addIceCandidate(payload.data.candidate);
+              } catch {
+                // Ignore stale ICE candidates after disconnect.
+              }
+            } else {
+              const queue = pendingIceCandidatesRef.current.get(payload.fromId) ?? [];
+              queue.push(payload.data.candidate);
+              pendingIceCandidatesRef.current.set(payload.fromId, queue);
+            }
+          }
+        }
+      };
+
       ws.onclose = () => {
         if (!stoppingRef.current) {
           setIsStreaming(false);
@@ -101,49 +225,12 @@ export default function CameraFrameSender({
       ws.onerror = () => {
         setStatus("socket error");
       };
-
-      const frameIntervalMs = Math.max(33, Math.floor(1000 / Math.max(1, fps)));
-      timerRef.current = window.setInterval(() => {
-        const socket = wsRef.current;
-        const video = videoRef.current;
-        const canvas = canvasRef.current;
-        if (!socket || !video || !canvas || socket.readyState !== WebSocket.OPEN) return;
-        if (video.videoWidth === 0 || video.videoHeight === 0 || isEncodingRef.current) return;
-
-        isEncodingRef.current = true;
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-
-        const context = canvas.getContext("2d");
-        if (!context) {
-          isEncodingRef.current = false;
-          return;
-        }
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-        canvas.toBlob(
-          async (blob) => {
-            if (!blob) {
-              isEncodingRef.current = false;
-              return;
-            }
-            const payload = await blob.arrayBuffer();
-            if (socket.readyState === WebSocket.OPEN) {
-              socket.send(payload);
-              setFramesSent((value) => value + 1);
-            }
-            isEncodingRef.current = false;
-          },
-          "image/jpeg",
-          jpegQuality,
-        );
-      }, frameIntervalMs);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to start camera stream.";
       setError(message);
       stopStreaming();
     }
-  }, [fps, jpegQuality, resolvedServerUrl, roomId, stopStreaming]);
+  }, [maxFps, maxHeight, maxWidth, resolvedServerUrl, roomId, setupPeerForViewer, removeViewerPeer, stopStreaming]);
 
   useEffect(() => {
     return () => {
@@ -170,7 +257,7 @@ export default function CameraFrameSender({
             onClick={startStreaming}
             className="px-4 py-2 text-sm font-semibold rounded-[8px] bg-[var(--muted)] hover:bg-[var(--border)] transition-colors"
           >
-            Start Frame Stream
+            Start WebRTC Stream
           </button>
         ) : (
           <button
@@ -186,12 +273,10 @@ export default function CameraFrameSender({
         <div className="text-xs text-[var(--muted-foreground)] font-mono">status: {status}</div>
         <div className="text-xs text-[var(--muted-foreground)] font-mono">server: {resolvedServerUrl}</div>
         <div className="text-xs text-[var(--muted-foreground)] font-mono">room: {roomId}</div>
-        <div className="text-xs text-[var(--muted-foreground)] font-mono">fps: {fps}</div>
-        <div className="text-xs text-[var(--muted-foreground)] font-mono">frames sent: {framesSent}</div>
+        <div className="text-xs text-[var(--muted-foreground)] font-mono">max capture: {maxWidth}x{maxHeight}@{maxFps}</div>
+        <div className="text-xs text-[var(--muted-foreground)] font-mono">connected viewers: {viewerCount}</div>
         {error && <div className="text-xs text-[oklch(0.78_0.09_15)] mt-1">{error}</div>}
       </div>
-
-      <canvas ref={canvasRef} className="hidden" />
     </div>
   );
 }

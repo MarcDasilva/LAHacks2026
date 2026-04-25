@@ -15,8 +15,9 @@ import time
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 
-from . import config, sessions
+from . import cloud_export, config, sessions
 
 app = FastAPI(title="lingbot_bridge ingest")
 
@@ -109,3 +110,31 @@ def get_session(session_id: str) -> dict:
 @app.get("/sessions")
 def list_sessions() -> list[dict]:
     return [s.__dict__ for s in sessions.list_all()]
+
+
+@app.get("/sessions/{session_id}/cloud")
+def get_cloud(
+    session_id: str,
+    conf: float = 1.0,
+    downsample: int = 10,
+) -> Response:
+    """Binary point cloud for browser rendering — mirrors upstream defaults
+    (vis_threshold=1.0, downsample_factor=10). See cloud_export for format.
+    """
+    _validate_session_id(session_id)
+    state = sessions.load(session_id)
+    if state is None:
+        raise HTTPException(404, "no such session")
+    if state.status != "done":
+        raise HTTPException(409, f"session is {state.status}, not done")
+
+    try:
+        blob = cloud_export.get_or_build_cloud(
+            config.session_output_dir(session_id),
+            conf_threshold=conf,
+            downsample=downsample,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+
+    return Response(content=blob, media_type="application/octet-stream")
