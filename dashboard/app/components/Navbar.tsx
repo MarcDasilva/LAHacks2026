@@ -3,8 +3,8 @@
 import { LayoutDashboard, Bell, BarChart2, FileText } from "lucide-react";
 
 const navItems = [
-  { icon: LayoutDashboard, label: "Dashboard", href: "#" },
-  { icon: Bell,            label: "Alerts",    href: "#" },
+  { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
+  { icon: Bell,            label: "Alerts",    href: "/" },
   { icon: BarChart2,       label: "Analytics", href: "#" },
   { icon: FileText,        label: "Reports",   href: "#" },
 ];
