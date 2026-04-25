@@ -9,6 +9,47 @@ protocol CameraCaptureServiceDelegate: AnyObject {
 }
 
 final class CameraCaptureService: NSObject, ObservableObject {
+    private struct CameraStreamCaptureSettings {
+        let sessionPreset: AVCaptureSession.Preset
+        let targetFPS: Int
+
+        static func fromEnvironment(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> CameraStreamCaptureSettings {
+            let presetRaw = sanitizeEnvValue(environment["RESPONDER_CAMERA_CAPTURE_PRESET"]) ?? "hd1280x720"
+            let targetFPS = max(sanitizeEnvValue(environment["RESPONDER_CAMERA_CAPTURE_FPS"]).flatMap(Int.init) ?? 24, 1)
+            return CameraStreamCaptureSettings(sessionPreset: sessionPreset(from: presetRaw), targetFPS: targetFPS)
+        }
+
+        private static func sessionPreset(from rawValue: String) -> AVCaptureSession.Preset {
+            switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "hd1920x1080", "1080p":
+                return .hd1920x1080
+            case "hd1280x720", "720p":
+                return .hd1280x720
+            case "vga640x480", "480p":
+                return .vga640x480
+            case "high":
+                return .high
+            case "medium":
+                return .medium
+            case "low":
+                return .low
+            default:
+                return .hd1280x720
+            }
+        }
+
+        private static func sanitizeEnvValue(_ value: String?) -> String? {
+            guard var value else { return nil }
+            value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if value.hasPrefix("=") {
+                value.removeFirst()
+                value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            value = value.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            return value.isEmpty ? nil : value
+        }
+    }
+
     enum CameraCaptureError: LocalizedError {
         case permissionDenied
         case microphonePermissionDenied
@@ -50,9 +91,9 @@ final class CameraCaptureService: NSObject, ObservableObject {
     let session = AVCaptureSession()
     weak var delegate: CameraCaptureServiceDelegate?
 
-    private let sessionQueue = DispatchQueue(label: "com.lahacks.responder.camera.session")
-    private let videoOutputQueue = DispatchQueue(label: "com.lahacks.responder.camera.frames")
-    private let audioOutputQueue = DispatchQueue(label: "com.lahacks.responder.audio.frames")
+    private let sessionQueue = DispatchQueue(label: "com.lahacks.responder.camera.session", qos: .userInitiated)
+    private let videoOutputQueue = DispatchQueue(label: "com.lahacks.responder.camera.frames", qos: .userInitiated)
+    private let audioOutputQueue = DispatchQueue(label: "com.lahacks.responder.audio.frames", qos: .userInitiated)
     private var isConfigured = false
 
     func requestPermissionIfNeeded() async -> Bool {
@@ -151,6 +192,7 @@ final class CameraCaptureService: NSObject, ObservableObject {
 
     private func configureSessionIfNeeded() throws {
         guard !isConfigured else { return }
+        let captureSettings = CameraStreamCaptureSettings.fromEnvironment()
 
         let status = AVCaptureDevice.authorizationStatus(for: .video)
         guard status == .authorized else {
@@ -158,7 +200,11 @@ final class CameraCaptureService: NSObject, ObservableObject {
         }
 
         session.beginConfiguration()
-        session.sessionPreset = .high
+        if session.canSetSessionPreset(captureSettings.sessionPreset) {
+            session.sessionPreset = captureSettings.sessionPreset
+        } else {
+            session.sessionPreset = .high
+        }
 
         guard
             let cameraDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
@@ -174,6 +220,7 @@ final class CameraCaptureService: NSObject, ObservableObject {
             throw CameraCaptureError.cannotAddInput
         }
         session.addInput(cameraInput)
+        configureCameraFrameRate(cameraDevice, targetFPS: captureSettings.targetFPS)
 
         let videoOutput = AVCaptureVideoDataOutput()
         videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
@@ -231,6 +278,35 @@ final class CameraCaptureService: NSObject, ObservableObject {
 
         session.commitConfiguration()
         isConfigured = true
+    }
+
+    private func configureCameraFrameRate(_ device: AVCaptureDevice, targetFPS: Int) {
+        let ranges = device.activeFormat.videoSupportedFrameRateRanges
+        guard !ranges.isEmpty else { return }
+
+        let desired = Double(targetFPS)
+        let supported = ranges.contains { range in
+            desired >= range.minFrameRate && desired <= range.maxFrameRate
+        }
+
+        let selectedFPS: Double
+        if supported {
+            selectedFPS = desired
+        } else {
+            selectedFPS = ranges.map(\.maxFrameRate).max() ?? desired
+        }
+
+        guard selectedFPS > 0 else { return }
+
+        do {
+            try device.lockForConfiguration()
+            let frameDuration = CMTime(value: 1, timescale: CMTimeScale(Int32(selectedFPS.rounded())))
+            device.activeVideoMinFrameDuration = frameDuration
+            device.activeVideoMaxFrameDuration = frameDuration
+            device.unlockForConfiguration()
+        } catch {
+            // Keep camera session resilient if frame-rate configuration fails.
+        }
     }
 }
 

@@ -2,13 +2,14 @@ import http from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 
 const port = Number(process.env.FRAME_STREAM_PORT ?? 8787);
+const host = process.env.FRAME_STREAM_HOST ?? "0.0.0.0";
+const maxViewerBufferBytes = Number(process.env.FRAME_STREAM_MAX_VIEWER_BUFFER_BYTES ?? 512 * 1024);
 const rooms = new Map();
-const frameCounts = new Map();
+let nextSocketId = 1;
 
 function log(event, data = {}) {
   const time = new Date().toISOString();
-  // eslint-disable-next-line no-console
-  console.log(`[relay ${time}] ${event}`, data);
+  console.log(`[signal ${time}] ${event}`, data);
 }
 
 function getRoom(roomId) {
@@ -16,7 +17,6 @@ function getRoom(roomId) {
   if (!room) {
     room = { sender: null, viewers: new Set() };
     rooms.set(roomId, room);
-    frameCounts.set(roomId, 0);
     log("room_created", { roomId });
   }
   return room;
@@ -29,7 +29,11 @@ function sendJson(ws, payload) {
 }
 
 function broadcastStreamState(room) {
-  const payload = { type: "stream-state", senderOnline: Boolean(room.sender) };
+  const payload = {
+    type: "stream-state",
+    senderOnline: Boolean(room.sender),
+    senderId: room.sender?.id ?? null,
+  };
   for (const viewer of room.viewers) {
     sendJson(viewer, payload);
   }
@@ -40,7 +44,6 @@ function cleanupRoom(roomId) {
   if (!room) return;
   if (!room.sender && room.viewers.size === 0) {
     rooms.delete(roomId);
-    frameCounts.delete(roomId);
     log("room_deleted", { roomId });
   }
 }
@@ -54,58 +57,57 @@ function detachFromCurrentRoom(socket) {
 
   if (role === "sender" && room.sender === socket) {
     room.sender = null;
-    broadcastStreamState(room);
     log("sender_detached", { roomId, viewers: room.viewers.size });
+    broadcastStreamState(room);
   }
 
   if (role === "viewer") {
     room.viewers.delete(socket);
+    if (room.sender) {
+      sendJson(room.sender, { type: "viewer-left", viewerId: socket.id });
+    }
     log("viewer_detached", { roomId, viewers: room.viewers.size });
   }
 
   cleanupRoom(roomId);
 }
 
+function isInSameRoom(source, target) {
+  return Boolean(source.meta.roomId && source.meta.roomId === target.meta.roomId);
+}
+
+function findSocketById(room, socketId) {
+  if (room.sender && room.sender.id === socketId) return room.sender;
+  for (const viewer of room.viewers) {
+    if (viewer.id === socketId) return viewer;
+  }
+  return null;
+}
+
 const server = http.createServer((_, res) => {
   res.writeHead(200, { "content-type": "text/plain" });
-  res.end("Frame stream relay is running.\n");
+  res.end("WebRTC signaling server is running.\n");
 });
 
 const wss = new WebSocketServer({ server });
 
 wss.on("connection", (socket) => {
+  socket.id = `peer-${nextSocketId++}`;
   socket.meta = { roomId: null, role: null };
-  log("socket_connected");
+  log("socket_connected", { socketId: socket.id });
 
   socket.on("message", (raw, isBinary) => {
-    const { roomId, role } = socket.meta;
     if (isBinary) {
+      const { roomId, role } = socket.meta;
       if (!roomId || role !== "sender") return;
       const room = rooms.get(roomId);
       if (!room) return;
 
-      const nextCount = (frameCounts.get(roomId) ?? 0) + 1;
-      frameCounts.set(roomId, nextCount);
-
-      const size = typeof raw === "string" ? raw.length : raw.byteLength;
-      if (nextCount === 1 || nextCount % 30 === 0) {
-        log("frame_received", {
-          roomId,
-          frameCount: nextCount,
-          frameBytes: size,
-          viewers: room.viewers.size,
-        });
-      }
-
-      let forwarded = 0;
       for (const viewer of room.viewers) {
         if (viewer.readyState === WebSocket.OPEN) {
+          if (viewer.bufferedAmount > maxViewerBufferBytes) continue;
           viewer.send(raw, { binary: true });
-          forwarded += 1;
         }
-      }
-      if (nextCount === 1 || nextCount % 30 === 0) {
-        log("frame_forwarded", { roomId, frameCount: nextCount, forwarded });
       }
       return;
     }
@@ -117,38 +119,66 @@ wss.on("connection", (socket) => {
       return;
     }
 
-    if (payload.type !== "join" || !payload.roomId || !payload.role) return;
+    if (payload.type === "join" && payload.roomId && payload.role) {
+      const nextRoomId = String(payload.roomId);
+      const nextRole = payload.role === "sender" ? "sender" : "viewer";
 
-    const nextRoomId = String(payload.roomId);
-    const nextRole = payload.role === "sender" ? "sender" : "viewer";
-    log("join_received", { role: nextRole, roomId: nextRoomId });
-    detachFromCurrentRoom(socket);
-    const room = getRoom(nextRoomId);
-    socket.meta = { roomId: nextRoomId, role: nextRole };
+      log("join_received", { socketId: socket.id, role: nextRole, roomId: nextRoomId });
+      detachFromCurrentRoom(socket);
 
-    if (nextRole === "sender") {
-      if (room.sender && room.sender !== socket) {
-        sendJson(room.sender, { type: "sender-replaced" });
-        room.sender.close(4001, "Replaced by a new sender");
+      const room = getRoom(nextRoomId);
+      socket.meta = { roomId: nextRoomId, role: nextRole };
+
+      if (nextRole === "sender") {
+        if (room.sender && room.sender !== socket) {
+          sendJson(room.sender, { type: "sender-replaced" });
+          room.sender.close(4001, "Replaced by a new sender");
+        }
+        room.sender = socket;
+        sendJson(socket, { type: "joined", role: "sender", roomId: nextRoomId, socketId: socket.id });
+        for (const viewer of room.viewers) {
+          sendJson(socket, { type: "viewer-joined", viewerId: viewer.id });
+        }
+        broadcastStreamState(room);
+        log("sender_attached", { socketId: socket.id, roomId: nextRoomId, viewers: room.viewers.size });
+        return;
       }
-      room.sender = socket;
-      broadcastStreamState(room);
-      log("sender_attached", { roomId: nextRoomId, viewers: room.viewers.size });
-      sendJson(socket, { type: "joined", role: "sender", roomId: nextRoomId });
-    } else {
+
       room.viewers.add(socket);
-      log("viewer_attached", { roomId: nextRoomId, viewers: room.viewers.size, senderOnline: Boolean(room.sender) });
-      sendJson(socket, { type: "joined", role: "viewer", roomId: nextRoomId });
-      sendJson(socket, { type: "stream-state", senderOnline: Boolean(room.sender) });
+      sendJson(socket, { type: "joined", role: "viewer", roomId: nextRoomId, socketId: socket.id });
+      sendJson(socket, { type: "stream-state", senderOnline: Boolean(room.sender), senderId: room.sender?.id ?? null });
+      if (room.sender) {
+        sendJson(room.sender, { type: "viewer-joined", viewerId: socket.id });
+      }
+      log("viewer_attached", { socketId: socket.id, roomId: nextRoomId, viewers: room.viewers.size });
+      return;
+    }
+
+    if (payload.type === "signal" && payload.targetId && payload.data) {
+      const { roomId } = socket.meta;
+      if (!roomId) return;
+      const room = rooms.get(roomId);
+      if (!room) return;
+
+      const target = findSocketById(room, String(payload.targetId));
+      if (!target) return;
+      if (!isInSameRoom(socket, target)) return;
+
+      sendJson(target, {
+        type: "signal",
+        fromId: socket.id,
+        data: payload.data,
+      });
+      return;
     }
   });
 
   socket.on("close", () => {
-    log("socket_closed", { roomId: socket.meta.roomId, role: socket.meta.role });
+    log("socket_closed", { socketId: socket.id, roomId: socket.meta.roomId, role: socket.meta.role });
     detachFromCurrentRoom(socket);
   });
 });
 
-server.listen(port, () => {
-  log("server_started", { url: `ws://localhost:${port}` });
+server.listen(port, host, () => {
+  log("server_started", { url: `ws://${host}:${port}` });
 });
