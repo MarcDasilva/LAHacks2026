@@ -21,7 +21,7 @@ export default function Dashboard() {
 
           {/* ── Left: live body cam feed ── */}
           <Panel className="row-span-full flex flex-col min-h-0">
-            <div className="flex-1 overflow-hidden relative min-h-0 rounded-[14px]">
+            <div className="flex-1 overflow-hidden relative min-h-0">
               <CameraBentoBoard />
             </div>
           </Panel>
@@ -31,7 +31,7 @@ export default function Dashboard() {
 
             {/* Top: 3D splatting render */}
             <Panel className="flex flex-col min-h-0">
-              <div className="flex-1 overflow-hidden relative min-h-0 rounded-[14px]">
+              <div className="flex-1 overflow-hidden relative min-h-0">
                 <RenderPanel />
               </div>
             </Panel>
@@ -42,9 +42,9 @@ export default function Dashboard() {
                 <input
                   type="text"
                   placeholder="Describe what you're looking for..."
-                  className="flex-1 bg-[var(--muted)] rounded-[8px] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)] transition-all"
+                  className="flex-1 bg-[var(--muted)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)] transition-all"
                 />
-                <button className="px-5 py-2 bg-[var(--muted)] text-[var(--foreground)] text-sm font-semibold rounded-[8px] hover:bg-[var(--border)] transition-colors">
+                <button className="px-5 py-2 bg-[var(--muted)] text-[var(--foreground)] text-sm font-semibold hover:bg-[var(--border)] transition-colors">
                   Query
                 </button>
               </div>
@@ -70,7 +70,7 @@ export default function Dashboard() {
 
 function Panel({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={`bg-[var(--card)] rounded-[16px] overflow-hidden shadow-[0_4px_24px_-4px_rgba(0,0,0,0.3)] ${className}`}>
+    <div className={`bg-[var(--card)] overflow-hidden shadow-[0_4px_24px_-4px_rgba(0,0,0,0.3)] ${className}`}>
       {children}
     </div>
   );
@@ -82,7 +82,7 @@ function RenderPanel() {
 
 function VideoChunk({ index }: { index: number }) {
   return (
-    <div className="shrink-0 w-36 h-full bg-[var(--hero)] rounded-[12px] flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:brightness-110 transition-all">
+    <div className="shrink-0 w-36 h-full bg-[var(--hero)] flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:brightness-110 transition-all">
       <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4 text-[var(--muted-foreground)]">
         <polygon points="5,3 19,12 5,21" fill="currentColor" />
       </svg>

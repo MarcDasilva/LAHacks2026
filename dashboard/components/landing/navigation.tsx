@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Menu, X } from "lucide-react";
 
 export function Navigation() {
+  const router = useRouter();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -65,6 +67,7 @@ export function Navigation() {
               className={`bg-foreground hover:bg-foreground/90 text-background rounded-full transition-all duration-500 ${
                 isScrolled ? "px-4 h-8 text-xs" : "px-6"
               }`}
+              onClick={() => router.push("/dashboard")}
             >
               Launch IMPULSE
             </Button>
@@ -112,7 +115,10 @@ export function Navigation() {
             </Button>
             <Button
               className="flex-1 bg-foreground text-background rounded-full h-14 text-base"
-              onClick={() => setIsMobileMenuOpen(false)}
+              onClick={() => {
+                setIsMobileMenuOpen(false);
+                router.push("/dashboard");
+              }}
             >
               Launch IMPULSE
             </Button>

@@ -316,12 +316,12 @@ export default function CameraFrameViewer({
         </div>
       )}
 
-      <div className="absolute right-3 bottom-3 flex items-center gap-1.5 rounded-[8px] bg-black/40 px-2 py-1 backdrop-blur-sm">
-        <span className={`h-1.5 w-1.5 rounded-full ${senderOnline ? "bg-white/60" : "bg-[oklch(0.78_0.09_15)]"} ${senderOnline ? "animate-pulse" : ""}`} />
+      <div className="absolute right-3 bottom-3 flex items-center gap-1.5 bg-black/40 px-2 py-1 backdrop-blur-sm">
+        <span className={`h-1.5 w-1.5 ${senderOnline ? "bg-white/60" : "bg-[oklch(0.78_0.09_15)]"} ${senderOnline ? "animate-pulse" : ""}`} />
         <span className="text-[10px] text-white font-mono uppercase tracking-widest">{statusLabel}</span>
       </div>
 
-      <div className="absolute left-3 bottom-3 rounded-[8px] bg-black/40 px-2 py-1 backdrop-blur-sm">
+      <div className="absolute left-3 bottom-3 bg-black/40 px-2 py-1 backdrop-blur-sm">
         <span className="text-[10px] text-white/70 font-mono">
           {lastFrameAtLabel ? `last frame ${lastFrameAtLabel}` : `room ${roomId}`}
         </span>
