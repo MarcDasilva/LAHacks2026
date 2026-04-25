@@ -117,6 +117,7 @@ def get_cloud(
     session_id: str,
     points: int = 100_000,
     conf: float = 0.5,
+    outlier_pct: float = 1.0,
 ) -> Response:
     """Binary point cloud for browser rendering. See cloud_export for format."""
     _validate_session_id(session_id)
@@ -131,6 +132,7 @@ def get_cloud(
             config.session_output_dir(session_id),
             target_points=points,
             conf_threshold=conf,
+            outlier_percentile=outlier_pct,
         )
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))
