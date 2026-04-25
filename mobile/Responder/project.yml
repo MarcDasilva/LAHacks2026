@@ -1,0 +1,52 @@
+name: Responder
+options:
+  deploymentTarget:
+    iOS: "16.6"
+settings:
+  base:
+    PRODUCT_BUNDLE_IDENTIFIER: com.lahacks.responder
+    SWIFT_VERSION: 5.0
+packages:
+  ZeticMLangeiOS:
+    url: https://github.com/zetic-ai/ZeticMLangeiOS.git
+    exactVersion: 1.6.0
+targets:
+  Responder:
+    type: application
+    platform: iOS
+    sources:
+      - Responder
+    info:
+      path: Responder/Info.plist
+      properties:
+        NSCameraUsageDescription: Responder needs camera access to capture frames for live inference.
+        NSMicrophoneUsageDescription: Responder needs microphone access to capture audio for live transcription inference.
+        NSSpeechRecognitionUsageDescription: Responder uses speech recognition to provide fallback transcription when cloud model loading fails.
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+    settings:
+      base:
+        INFOPLIST_KEY_CFBundleDisplayName: Responder
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: true
+        INFOPLIST_KEY_UILaunchScreen_Generation: true
+        OTHER_LDFLAGS:
+          - "$(inherited)"
+          - "-framework"
+          - "Accelerate"
+    dependencies:
+      - package: ZeticMLangeiOS
+        product: ZeticMLange
+    scheme:
+      testTargets:
+        - ResponderTests
+  ResponderTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - ResponderTests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+    dependencies:
+      - target: Responder

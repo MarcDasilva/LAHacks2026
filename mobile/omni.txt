@@ -1,0 +1,151 @@
+Tutorials
+Audio Understanding (Qwen2.5-Omni)
+Run on-device audio understanding with Qwen2.5-Omni — feed audio embeddings directly into the LLM decoder via runWithEmbeddings.
+
+This tutorial uses the Multimodal (Beta) APIs introduced in ZeticMLange 1.7.0-beta.1 (Android + iOS). The APIs are stable for the audio path covered here but may evolve before general availability.
+
+Build an on-device audio understanding application using Alibaba's Qwen2.5-Omni 3B model. Unlike pure speech-to-text (transcription), Qwen2.5-Omni is a unified multimodal LLM that can describe, reason about, and answer questions about audio input — speech, music, ambient sounds, and more.
+
+What You Will Build
+A two-stage on-device pipeline:
+
+
+mic input → mel spectrogram → audio encoder
+        → flat embedding sequence
+        → LLM decoder (runWithEmbeddings)
+        → streaming text output
+The audio encoder and LLM decoder are two separate models. On RAM-constrained devices (≤ 6 GB) they cannot coexist, so the application swaps them: load encoder → run encoder → unload encoder → load decoder → runWithEmbeddings() → stream tokens.
+
+Prerequisites
+A ZETIC Melange account with a Personal Key (sign up at melange.zetic.ai)
+Android Studio or Xcode for mobile deployment
+A physical device with at least 6 GB RAM (iPhone 15 Pro or later for iOS; comparable Android device)
+Wi-Fi for first-run model downloads (encoder ≈ 2.4 GB + decoder ≈ 2 GB)
+What is Qwen2.5-Omni?
+Qwen2.5-Omni is Alibaba's unified multimodal LLM. The key distinction:
+
+Inputs: text, audio, image, video
+Outputs: text, speech
+Audio understanding, not just transcription: it answers questions like "what kind of music is this?", "how does the speaker feel?", or "list the sounds you hear" — capabilities a speech-to-text model cannot provide.
+This tutorial uses the audio → text subset.
+
+Architecture Overview
+
+┌─────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+│ Microphone  │ ─▶ │ Mel          │ ─▶ │ Audio        │ ─▶ │ LLM Decoder  │ ─▶ Text
+│ 16 kHz mono │    │ Spectrogram  │    │ Encoder      │    │ (Qwen-Omni)  │
+│ float32 PCM │    │ 128 × N      │    │ → embeddings │    │              │
+└─────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
+Step-by-step:
+
+Audio capture — 16 kHz mono float32 PCM via the platform audio API.
+Mel spectrogram — 400-point DFT, 160-sample hop, 128 mel bands (Slaney scale, Whisper-compatible).
+Audio encoder — ZeticMLangeModel running zetic/qwen2.5_omni_audio_encoder_chunk_f16. 200 mel frames per chunk → [50, 2048] embeddings per chunk.
+Embedding injection — A ChatML chat template wraps the encoder output with <|audio_bos|> / <|audio_eos|> markers; the helper produces a flat embedding buffer suitable for runWithEmbeddings.
+LLM decoder — ZeticMLangeLLMModel running zetic/QWEN_2.5_omni_3b_decoder. Token stream is consumed via waitForNextToken.
+Step 1: Platform Setup
+For project scaffolding, follow the platform-specific setup guide first:
+
+Android Integration Guide
+iOS Integration Guide
+For the audio understanding pipeline, your dependency must be at least 1.7.0-beta.1:
+
+Android (Kotlin)
+iOS (Swift)
+
+// build.gradle.kts
+dependencies {
+    implementation("com.zeticai.mlange:mlange:1.7.0-beta.1")
+}
+Step 2: Mel Spectrogram Preprocessing
+Qwen2.5-Omni's audio encoder expects log-mel features matching librosa's Slaney-scale filter bank — the same convention as Whisper. The repository ships a pre-computed filter bank as a binary asset (mel_filterbank.bin, shape [128, 201] row-major float32) generated with:
+
+
+librosa.filters.mel(sr=16000, n_fft=400, n_mels=128, fmax=8000, norm='slaney', htk=False)
+Bundle mel_filterbank.bin alongside your app:
+
+Android (Kotlin)
+iOS (Swift)
+Add the file to the app bundle and resolve via Bundle.main.url(forResource: "mel_filterbank", withExtension: "bin").
+
+The mel extractor runs a 400-point naive DFT with a periodic Hann window, applies the bundled filter bank, and finishes with Whisper's log-mel normalization:
+
+
+mel[i] = max(log10(power_mel), max_log_mel - 8) / 4 + 1
+A complete reference implementation in Kotlin and Swift is provided in the sample project linked at the end of this tutorial.
+
+Step 3: Audio Encoder
+The audio encoder is a regular ZeticMLangeModel that consumes 200-frame mel chunks and emits 50 embedding tokens × 2048 dims per chunk. Concatenate per-chunk outputs and trim to the actual number of audio tokens.
+
+Android (Kotlin)
+iOS (Swift)
+
+import ZeticMLange
+let encoder = try ZeticMLangeModel(
+    personalKey: PERSONAL_KEY,
+    name: "zetic/qwen2.5_omni_audio_encoder_chunk_f16",
+    target: .ZETIC_MLANGE_TARGET_COREML
+)
+// For each 200-frame mel chunk:
+//   1. Fill the encoder input tensor with mel data ([1, 128, 200] float32)
+//   2. Run inference
+//   3. Concatenate the [1, 50, 2048] output into a flat [Float]
+The encoder is large. After running it, unload it before loading the decoder if your device has ≤ 6 GB total RAM — otherwise the decoder load will OOM.
+
+Step 4: Chat Template + Embedding Injection
+Qwen2.5-Omni expects audio embeddings to be wrapped in a Qwen ChatML prompt with <|audio_bos|> / <|audio_eos|> markers. The SDK ships a ready-to-use helper, QwenOmniAudioChatTemplate, that:
+
+Tokenizes the chat prefix and suffix (with parseSpecial = true so the markers become single tokens).
+Looks up per-token embeddings from the model's tok_embd tensor.
+Concatenates [prefix_embeds, audio_embeds, suffix_embeds] into one flat float buffer suitable for runWithEmbeddings.
+Before passing the loaded LLM model to the helper, validate it against the audio profile so an incompatible checkpoint fails fast:
+
+Android (Kotlin)
+iOS (Swift)
+
+import ZeticMLange
+let decoder = try ZeticMLangeLLMModel(
+    personalKey: PERSONAL_KEY,
+    name: "zetic/QWEN_2.5_omni_3b_decoder"
+)
+try decoder.validate(profile: .qwenOmniAudio)
+let merged = try QwenOmniAudioChatTemplate().build(
+    llm: decoder,
+    audioEmbeddings: audioEmbeddings,    // [Float] from Step 3
+    userText: "What do you hear in this audio?"
+)
+_ = try decoder.runWithEmbeddings(merged)
+runWithEmbeddings queues the merged embedding sequence as a single decode batch but does not sample any tokens itself — the decode + sampling happen in the streaming loop next.
+
+Step 5: Streaming the Response
+Token streaming uses the same waitForNextToken() you already use with run(text:). The first call decodes the embedding batch and samples the first response token; subsequent calls decode and sample one token at a time.
+
+Android (Kotlin)
+iOS (Swift)
+
+var response = ""
+while true {
+    let result = decoder.waitForNextToken()
+    if result.generatedTokens == 0 { break }
+    if !result.token.isEmpty { response += result.token }
+}
+try? decoder.cleanUp()
+Step 6: Encoder ↔ Decoder Swap
+The encoder + decoder pair does not fit in memory together on most current phones, so this tutorial recommends a swap pattern:
+
+
+[app start]                ← decoder cached on disk, encoder resident
+[user starts recording]    ← prewarm encoder (already resident, no-op)
+[user stops recording]     ← run encoder → unload encoder → load decoder
+[stream tokens]
+[response complete]        ← unload decoder → reload encoder for next turn
+A typical swap (encoder unload + decoder load from disk cache) takes 5–10 seconds on iPhone 15 Pro. Subsequent loads from cache are noticeably faster than the very first download/compile cycle.
+
+Devices with 8 GB+ RAM (e.g. iPhone 16 Pro and recent flagship Android) can sometimes hold both models simultaneously and skip swap entirely — but this is not guaranteed across vendors and OS versions. Validate on your target device.
+
+Beta Notes
+Backend: Multimodal embedding injection is currently supported only on the llama.cpp backend. Calling runWithEmbeddings / tokenize / tokenEmbeddings / specialTokenId on a non-llama.cpp target throws.
+Models: Tested with zetic/qwen2.5_omni_audio_encoder_chunk_f16 and zetic/QWEN_2.5_omni_3b_decoder. Other Qwen2.5-Omni-compatible checkpoints should work as long as their vocabulary contains the special tokens declared in MultimodalProfile.QWEN_OMNI_AUDIO.
+Output language: The 3B decoder may occasionally produce Chinese for English audio. This is a base-model trait; sampling and prompt tuning can help.
+Audio quality: Validated primarily with clear English speech and short music clips. Heavy background noise, very short clips (< 0.5 s), or non-Whisper sample rates may degrade output quality.
+See Also

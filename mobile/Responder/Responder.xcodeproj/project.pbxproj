@@ -1,0 +1,457 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0C46FA4012DE074A886D5FCC /* CameraPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DE726B899AF070DC908A09C /* CameraPreviewView.swift */; };
+		1EE19E6F1033CF9C9DEFCB06 /* ZeticMLange in Frameworks */ = {isa = PBXBuildFile; productRef = 6659DD6186F39F9B64B14679 /* ZeticMLange */; };
+		4D064C8B26EA22E4F1525599 /* InferencePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B504230775C7BD924DF100 /* InferencePipeline.swift */; };
+		5EE651B17EBAD02035CAD1CD /* CameraCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C0D0842D28810A97AC28A18 /* CameraCaptureService.swift */; };
+		90BF0831F1F66CB8224715EE /* ZeticMLInferenceEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E1117D9B602275E792AE453 /* ZeticMLInferenceEngine.swift */; };
+		99C79FB9FA0A3D06FB4CB824 /* ResponderApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D5B06802ADF7806415125CF /* ResponderApp.swift */; };
+		A34BE5C1839D2CFBD243991F /* AudioMelSpectrogram.swift in Sources */ = {isa = PBXBuildFile; fileRef = 024BE9A998734D6C8C4C3938 /* AudioMelSpectrogram.swift */; };
+		AB950A68BBF7DC5C146AE0DA /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D2D992AB356D3AEA5063927 /* ContentView.swift */; };
+		B4EE40B2F4FAE0B0AEF62FCC /* ResponderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1E0475A5F2F14AF06DAA096 /* ResponderTests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		4D44EB08A9B890CD04F87300 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 116310E08C397F9E2A9C5FBB /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FDEBE4E7064B4090703FE8F0;
+			remoteInfo = Responder;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		024BE9A998734D6C8C4C3938 /* AudioMelSpectrogram.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioMelSpectrogram.swift; sourceTree = "<group>"; };
+		1D2D992AB356D3AEA5063927 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		1FA8EA705EB2DB83DBCAB6B5 /* ResponderTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ResponderTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		2C0D0842D28810A97AC28A18 /* CameraCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCaptureService.swift; sourceTree = "<group>"; };
+		3D5B06802ADF7806415125CF /* ResponderApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResponderApp.swift; sourceTree = "<group>"; };
+		3DE726B899AF070DC908A09C /* CameraPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreviewView.swift; sourceTree = "<group>"; };
+		91E3D321598AD9D71430CC04 /* Responder.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Responder.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		95D3AB09779E04DCD25C5C80 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		9E1117D9B602275E792AE453 /* ZeticMLInferenceEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZeticMLInferenceEngine.swift; sourceTree = "<group>"; };
+		E1E0475A5F2F14AF06DAA096 /* ResponderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResponderTests.swift; sourceTree = "<group>"; };
+		E7B504230775C7BD924DF100 /* InferencePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InferencePipeline.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		F953B908EF074768E15B81E2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1EE19E6F1033CF9C9DEFCB06 /* ZeticMLange in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		5CB9999DD262077837741DBE = {
+			isa = PBXGroup;
+			children = (
+				CEF6B402008DAA3F63C75C7F /* Responder */,
+				82D7464E3EFF52FADD3DE23D /* ResponderTests */,
+				B41E3B3987C73BAE4F765872 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		82D7464E3EFF52FADD3DE23D /* ResponderTests */ = {
+			isa = PBXGroup;
+			children = (
+				E1E0475A5F2F14AF06DAA096 /* ResponderTests.swift */,
+			);
+			path = ResponderTests;
+			sourceTree = "<group>";
+		};
+		B41E3B3987C73BAE4F765872 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				91E3D321598AD9D71430CC04 /* Responder.app */,
+				1FA8EA705EB2DB83DBCAB6B5 /* ResponderTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		CEF6B402008DAA3F63C75C7F /* Responder */ = {
+			isa = PBXGroup;
+			children = (
+				024BE9A998734D6C8C4C3938 /* AudioMelSpectrogram.swift */,
+				2C0D0842D28810A97AC28A18 /* CameraCaptureService.swift */,
+				3DE726B899AF070DC908A09C /* CameraPreviewView.swift */,
+				1D2D992AB356D3AEA5063927 /* ContentView.swift */,
+				E7B504230775C7BD924DF100 /* InferencePipeline.swift */,
+				95D3AB09779E04DCD25C5C80 /* Info.plist */,
+				3D5B06802ADF7806415125CF /* ResponderApp.swift */,
+				9E1117D9B602275E792AE453 /* ZeticMLInferenceEngine.swift */,
+			);
+			path = Responder;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		8EB8755C9D235BA37EFF0CF7 /* ResponderTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1234271E02D8CA146D10F2D1 /* Build configuration list for PBXNativeTarget "ResponderTests" */;
+			buildPhases = (
+				476B6435958DB064EB995D6A /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				4678AF963D07D7DAC15781E0 /* PBXTargetDependency */,
+			);
+			name = ResponderTests;
+			packageProductDependencies = (
+			);
+			productName = ResponderTests;
+			productReference = 1FA8EA705EB2DB83DBCAB6B5 /* ResponderTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		FDEBE4E7064B4090703FE8F0 /* Responder */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 508F9C35F853AD0BF882FD5C /* Build configuration list for PBXNativeTarget "Responder" */;
+			buildPhases = (
+				244A01FDF051F88B6554071A /* Sources */,
+				F953B908EF074768E15B81E2 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Responder;
+			packageProductDependencies = (
+				6659DD6186F39F9B64B14679 /* ZeticMLange */,
+			);
+			productName = Responder;
+			productReference = 91E3D321598AD9D71430CC04 /* Responder.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		116310E08C397F9E2A9C5FBB /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+			};
+			buildConfigurationList = B99754867F5BC74DD65D2B12 /* Build configuration list for PBXProject "Responder" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 5CB9999DD262077837741DBE;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				C8D17F6D72F27BA345C58260 /* XCRemoteSwiftPackageReference "ZeticMLangeiOS" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = B41E3B3987C73BAE4F765872 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				FDEBE4E7064B4090703FE8F0 /* Responder */,
+				8EB8755C9D235BA37EFF0CF7 /* ResponderTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		244A01FDF051F88B6554071A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A34BE5C1839D2CFBD243991F /* AudioMelSpectrogram.swift in Sources */,
+				5EE651B17EBAD02035CAD1CD /* CameraCaptureService.swift in Sources */,
+				0C46FA4012DE074A886D5FCC /* CameraPreviewView.swift in Sources */,
+				AB950A68BBF7DC5C146AE0DA /* ContentView.swift in Sources */,
+				4D064C8B26EA22E4F1525599 /* InferencePipeline.swift in Sources */,
+				99C79FB9FA0A3D06FB4CB824 /* ResponderApp.swift in Sources */,
+				90BF0831F1F66CB8224715EE /* ZeticMLInferenceEngine.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		476B6435958DB064EB995D6A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B4EE40B2F4FAE0B0AEF62FCC /* ResponderTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		4678AF963D07D7DAC15781E0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FDEBE4E7064B4090703FE8F0 /* Responder */;
+			targetProxy = 4D44EB08A9B890CD04F87300 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		45373FDA49B13356D3A7F350 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Responder.app/Responder";
+			};
+			name = Debug;
+		};
+		9D8AD52B874DC753AE2A2457 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 52SD725S77;
+				INFOPLIST_FILE = Responder/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Responder;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					Accelerate,
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		B0930636FC337B448ABDB1A7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Responder.app/Responder";
+			};
+			name = Release;
+		};
+		DD400FB399BED25F3B048D88 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 52SD725S77;
+				INFOPLIST_FILE = Responder/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Responder;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					Accelerate,
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		EF76F4224F01BF395A866C19 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.lahacks.responder;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		F6E2504C66EF0C0E3AD9DFC1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.lahacks.responder;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1234271E02D8CA146D10F2D1 /* Build configuration list for PBXNativeTarget "ResponderTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				45373FDA49B13356D3A7F350 /* Debug */,
+				B0930636FC337B448ABDB1A7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		508F9C35F853AD0BF882FD5C /* Build configuration list for PBXNativeTarget "Responder" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9D8AD52B874DC753AE2A2457 /* Debug */,
+				DD400FB399BED25F3B048D88 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B99754867F5BC74DD65D2B12 /* Build configuration list for PBXProject "Responder" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F6E2504C66EF0C0E3AD9DFC1 /* Debug */,
+				EF76F4224F01BF395A866C19 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		C8D17F6D72F27BA345C58260 /* XCRemoteSwiftPackageReference "ZeticMLangeiOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/zetic-ai/ZeticMLangeiOS.git";
+			requirement = {
+				kind = exactVersion;
+				version = "1.6.0";
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		6659DD6186F39F9B64B14679 /* ZeticMLange */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C8D17F6D72F27BA345C58260 /* XCRemoteSwiftPackageReference "ZeticMLangeiOS" */;
+			productName = ZeticMLange;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 116310E08C397F9E2A9C5FBB /* Project object */;
+}

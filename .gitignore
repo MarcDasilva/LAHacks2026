@@ -6,3 +6,28 @@ __pycache__/
 data/
 database/data/
 database/.venv/
+# macOS
+.DS_Store
+
+# Secrets / local env
+.env
+*.env.local
+
+# Xcode user-specific data
+**/xcuserdata/
+**/*.xcuserstate
+**/*.xcscmblueprint
+
+# Build artifacts
+DerivedData/
+build/
+.build/
+
+# SwiftPM local caches
+.swiftpm/
+
+# Fastlane / tooling outputs (if added later)
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
