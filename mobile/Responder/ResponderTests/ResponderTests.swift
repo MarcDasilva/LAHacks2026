@@ -18,4 +18,12 @@ final class ResponderTests: XCTestCase {
         XCTAssertEqual(settings.maxFramesPerChunk, 45)
         XCTAssertEqual(settings.audioSamplesPerChunk, 32000)
     }
+
+    func testInferenceSettingsDefaultToAppleSTT() {
+        let settings = InferenceModelSettings.fromEnvironment([:])
+        XCTAssertEqual(settings.audioEngine, "APPLE")
+        XCTAssertEqual(settings.whisperEncoderModelName, "OpenAI/whisper-tiny-encoder")
+        XCTAssertEqual(settings.whisperDecoderModelName, "OpenAI/whisper-tiny-decoder")
+        XCTAssertEqual(settings.sttTimeoutSeconds, 12)
+    }
 }
