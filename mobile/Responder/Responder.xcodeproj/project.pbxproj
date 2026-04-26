@@ -495,7 +495,7 @@
 			repositoryURL = "https://github.com/zetic-ai/ZeticMLangeiOS.git";
 			requirement = {
 				kind = exactVersion;
-				version = "1.7.0-beta.1";
+				version = "1.6.0";
 			};
 		};
 		FA9A0042CB199189CCDB3D38 /* XCRemoteSwiftPackageReference "WebRTC" */ = {

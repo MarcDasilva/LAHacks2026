@@ -70,17 +70,36 @@ struct MemorySearchAnswer: Sendable {
 
 struct MemoryIndexSnapshot: Sendable {
     let indexedCount: Int
+    let promptCount: Int
     let databasePath: String
     let vectorVersion: String
     let latestSummary: String
+    let latestPromptPreview: String
 }
 
 enum MemorySearchSummarizer {
-    static func makeAnswer(for query: String, results: [MemorySearchResult]) -> MemorySearchAnswer {
+    static func relevantResults(_ results: [MemorySearchResult], maxDistance: Double) -> [MemorySearchResult] {
+        guard let best = results.min(by: { $0.semanticDistance < $1.semanticDistance }) else {
+            return []
+        }
+        guard best.semanticDistance <= maxDistance else {
+            return []
+        }
+        return results.filter { $0.semanticDistance <= maxDistance }
+    }
+
+    static func makeAnswer(
+        for query: String,
+        results: [MemorySearchResult],
+        defaultFallbackMessage: String
+    ) -> MemorySearchAnswer {
         let consolidated = consolidate(results)
         guard let strongest = consolidated.first else {
-            let empty = "I could not find a matching memory for \(query) yet."
-            return MemorySearchAnswer(summaryText: empty, spokenText: empty, consolidatedResults: [])
+            return MemorySearchAnswer(
+                summaryText: defaultFallbackMessage,
+                spokenText: defaultFallbackMessage,
+                consolidatedResults: []
+            )
         }
 
         let strongestSeen = strongest.detectionSummary.isEmpty ? "I did not capture a visual object label for it." : "I saw \(strongest.detectionSummary)."
@@ -481,6 +500,35 @@ actor OnDeviceMemoryIndex {
         return try await snapshot(latestSummary: "Local memory database cleared")
     }
 
+    func saveLLMPrompt(_ promptText: String, startedAt: Date, endedAt: Date) async throws -> MemoryIndexSnapshot {
+        try await prepareIfNeeded()
+
+        let cleanedPrompt = sanitizedPrompt(promptText)
+        guard !cleanedPrompt.isEmpty else {
+            return try await snapshot(latestSummary: "Voice prompt was empty")
+        }
+
+        let now = Date().timeIntervalSince1970
+        try await database.execute(
+            """
+            INSERT INTO llm_prompts (
+                prompt_text,
+                started_at,
+                ended_at,
+                created_at
+            ) VALUES (?, ?, ?, ?)
+            """,
+            params: [
+                cleanedPrompt,
+                startedAt.timeIntervalSince1970,
+                endedAt.timeIntervalSince1970,
+                now
+            ]
+        )
+
+        return try await snapshot(latestSummary: "Saved voice prompt locally")
+    }
+
     private func prepareIfNeeded() async throws {
         guard !isPrepared else { return }
 
@@ -551,6 +599,20 @@ actor OnDeviceMemoryIndex {
         )
         try await database.execute(
             "CREATE INDEX IF NOT EXISTS idx_memories_started_at ON memories(started_at DESC)"
+        )
+        try await database.execute(
+            """
+            CREATE TABLE IF NOT EXISTS llm_prompts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                prompt_text TEXT NOT NULL,
+                started_at REAL NOT NULL,
+                ended_at REAL NOT NULL,
+                created_at REAL NOT NULL
+            )
+            """
+        )
+        try await database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_llm_prompts_created_at ON llm_prompts(created_at DESC)"
         )
 
         let vectorTable = try await database.query(
@@ -694,12 +756,24 @@ actor OnDeviceMemoryIndex {
     private func snapshot(latestSummary: String) async throws -> MemoryIndexSnapshot {
         let countRows = try await database.query("SELECT COUNT(*) AS count FROM memories")
         let indexedCount = Self.intValue(countRows.first?["count"]) ?? 0
+        let promptCountRows = try await database.query("SELECT COUNT(*) AS count FROM llm_prompts")
+        let promptCount = Self.intValue(promptCountRows.first?["count"]) ?? 0
+        let latestPromptRows = try await database.query(
+            """
+            SELECT prompt_text
+            FROM llm_prompts
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
+        )
         let vectorVersion = await database.version() ?? "unknown"
         return MemoryIndexSnapshot(
             indexedCount: indexedCount,
+            promptCount: promptCount,
             databasePath: databasePath,
             vectorVersion: vectorVersion,
-            latestSummary: latestSummary
+            latestSummary: latestSummary,
+            latestPromptPreview: Self.promptPreview(from: Self.stringValue(latestPromptRows.first?["prompt_text"]))
         )
     }
 
@@ -723,6 +797,22 @@ actor OnDeviceMemoryIndex {
             return ""
         }
         return cleaned
+    }
+
+    private func sanitizedPrompt(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func promptPreview(from text: String) -> String {
+        let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return "No voice prompts saved yet." }
+        if cleaned.count <= 120 {
+            return cleaned
+        }
+        let index = cleaned.index(cleaned.startIndex, offsetBy: 120)
+        return "\(cleaned[..<index])..."
     }
 
     private static func databaseURL() throws -> URL {

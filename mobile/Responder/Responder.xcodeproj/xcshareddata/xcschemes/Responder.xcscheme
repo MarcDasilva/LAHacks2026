@@ -70,7 +70,18 @@
             ReferencedContainer = "container:Responder.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
+      <CommandLineArguments>
+         <CommandLineArgument
+            argument = ""
+            isEnabled = "YES">
+         </CommandLineArgument>
+      </CommandLineArguments>
       <EnvironmentVariables>
+         <EnvironmentVariable
+            key = ""
+            value = ""
+            isEnabled = "YES">
+         </EnvironmentVariable>
          <EnvironmentVariable
             key = "ZETIC_PERSONAL_KEY"
             value = "dev_64a4ff00f42f4d518d241f4f89513c49"
@@ -79,6 +90,11 @@
          <EnvironmentVariable
             key = "ZETIC_AUDIO_ENCODER_MODEL_NAME"
             value = "zetic/qwen2.5_omni_audio_encoder_chunk_f16"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = ""
+            value = ""
             isEnabled = "YES">
          </EnvironmentVariable>
          <EnvironmentVariable
@@ -92,13 +108,18 @@
             isEnabled = "YES">
          </EnvironmentVariable>
          <EnvironmentVariable
-            key = "RESPONDER_FRAME_STREAM_WS_URL"
+            key = "RESPONDER_FRAME_STREAM_WS_URL "
             value = "ws://10.30.75.222:8787"
             isEnabled = "YES">
          </EnvironmentVariable>
          <EnvironmentVariable
-            key = "RESPONDER_FRAME_STREAM_ROOM_ID"
+            key = "RESPONDER_FRAME_STREAM_ROOM_ID "
             value = "main-camera"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "RESPONDER_MEMORY_DEFAULT_MESSAGE"
+            value = "THE MAN IS IN THE CHAIR"
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>
