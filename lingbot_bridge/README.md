@@ -107,8 +107,33 @@ All knobs live in `.env` (see `.env.example`). Highlights:
 - `LINGBOT_MODE` — `streaming` (default) or `windowed`
 - `LINGBOT_FPS` — target sample rate for inference (default 10)
 - `INGEST_PORT` — ingest server port (default 8001)
+- `INGEST_VISER_PORT` — streaming viser viewer port (default 8890)
+- `INGEST_VISER_ENABLED` — `0` to disable the viser server
 - `MASK_SKY` — `1` to enable sky masking for outdoor scenes
 - `USE_SDPA` — `1` to skip FlashInfer and use PyTorch SDPA fallback
+
+## Streaming viser viewer
+
+The inference runner boots a [viser](https://github.com/nerfstudio-project/viser)
+server on `INGEST_VISER_PORT` (default 8890). The dashboard embeds it in an
+iframe so the user sees the cloud build up frame-by-frame instead of waiting
+for the full export.
+
+- Sessions live under `/sessions/{id}` in the viser scene; switching sessions
+  in the dashboard remounts the iframe.
+- Out of the box the runner does a **post-inference replay**: after `demo.py`
+  finishes, it reloads `predictions.pt` and pushes frames to viser one at a
+  time. The visible build-up matches what the user wants without touching
+  upstream lingbot-map.
+- For **true** in-flight streaming, patch `vendor/lingbot-map/demo.py` so the
+  inference loop dumps `frame_NNNN.pt` (keys: `depth`, `extrinsic`,
+  `intrinsic`, `image`, optional `depth_conf`) into
+  `outputs/<session>/streaming/`. The runner watches that directory during
+  inference and pushes frames to viser as they appear — no further code
+  changes needed on this side.
+
+On RunPod, expose port 8890 through the proxy alongside 8888 and set
+`NEXT_PUBLIC_VISER_URL` + `NEXT_PUBLIC_USE_VISER=1` in the dashboard env.
 
 ## Notes / known limits
 
