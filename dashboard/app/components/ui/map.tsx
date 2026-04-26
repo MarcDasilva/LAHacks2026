@@ -46,6 +46,11 @@ function createAlertMarkerElement() {
   `;
   markerEl.addEventListener("pointerdown", (event) => event.stopPropagation());
   markerEl.addEventListener("click", (event) => event.stopPropagation());
+  const connectButtonEl = markerEl.querySelector<HTMLButtonElement>(".alert-modal-connect");
+  connectButtonEl?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    window.location.assign("/dashboard");
+  });
   const previewMountEl = markerEl.querySelector<HTMLDivElement>(".alert-modal-preview-mount");
   if (!previewMountEl) {
     throw new Error("Alert preview container is missing.");

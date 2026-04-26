@@ -18,7 +18,6 @@ import {
   Route,
   Search,
   ShieldAlert,
-  Siren,
 } from "lucide-react";
 
 const Map = dynamic(() => import("@/app/components/ui/map"), {
@@ -226,13 +225,10 @@ export default function AlertsClient() {
               blur={4}
               className="alerts-glass"
             >
-              <div className="flex items-center gap-3 px-3 py-2">
-                <span className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-[var(--muted)] text-[var(--foreground)]">
-                  <Siren size={18} />
-                </span>
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] font-display text-[var(--muted-foreground)]">Live Incident Ops</p>
-                  <p className="text-[15px] font-bold tracking-[-0.01em] text-[var(--foreground)]">Bond Incident Command</p>
+              <div className="px-3 py-2">
+                <div className="flex items-end gap-2">
+                  <span className="font-display tracking-tight text-2xl text-[var(--foreground)]">IMPULSE</span>
+                  <span className="text-[var(--muted-foreground)] font-display text-xs mb-1">&gt; DISPATCH</span>
                 </div>
               </div>
             </GlassSurface>
