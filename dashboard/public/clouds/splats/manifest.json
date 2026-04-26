@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "videos": {
+    "impulse__sparse_source": {
+      "videoId": "impulse__sparse_source",
+      "videoUrl": "https://res.cloudinary.com/dylbj2vom/video/upload/v1777177030/impulse/sparse_source.mp4",
+      "videoLocalPath": "/clouds/video.mp4",
+      "lbmpPath": "/clouds/sparse.lbmp",
+      "pathPath": "/clouds/sparse.path.json",
+      "status": "ready",
+      "label": "sparse_source"
+    }
+  }
+}

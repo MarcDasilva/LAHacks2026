@@ -1,6 +1,15 @@
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChangeEvent,
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import CameraFrameViewer from "@/app/components/CameraFrameViewer";
 import { PointCloudViewer } from "@/app/components/ui/PointCloudViewer";
@@ -44,6 +53,59 @@ type ModelOutputPayload = {
     tensorCount: number;
   };
 };
+
+// ── Splat manifest + shared video selection ───────────────────────────────
+//
+// Every video that's been processed for sparse-splat reconstruction has
+// an entry in /clouds/splats/manifest.json mapping a stable videoId to
+// its splat artifacts. Both LandscapeCameraFeed and SparseSplatPanel
+// read this through the SelectedVideoContext: when the user switches
+// footage, the splat panel swaps in the matching point cloud.
+
+type SplatStatus = "ready" | "processing" | "failed";
+
+type SplatRecord = {
+  videoId: string;
+  videoUrl: string;
+  videoLocalPath?: string;
+  lbmpPath?: string;
+  pathPath?: string;
+  status: SplatStatus;
+  label?: string;
+  points?: number;
+  error?: string;
+};
+
+type SplatManifest = {
+  version: number;
+  videos: Record<string, SplatRecord>;
+};
+
+type SelectedVideo = {
+  videoId: string;
+  source: "cloudinary" | "user" | "local" | "stream";
+};
+
+type SelectedVideoCtx = {
+  selected: SelectedVideo | null;
+  setSelected: (v: SelectedVideo | null) => void;
+  manifest: SplatManifest | null;
+  refreshManifest: () => Promise<void>;
+};
+
+const SelectedVideoContext = createContext<SelectedVideoCtx | null>(null);
+
+function useSelectedVideo(): SelectedVideoCtx {
+  const ctx = useContext(SelectedVideoContext);
+  if (!ctx) throw new Error("SelectedVideoContext is missing");
+  return ctx;
+}
+
+const DEFAULT_VIDEO_ID = "impulse__sparse_source";
+
+function publicIdToVideoId(publicId: string): string {
+  return publicId.replace(/[\/\\]/g, "__");
+}
 
 function getDefaultFrameStreamHttpUrl() {
   if (typeof window === "undefined") {
@@ -144,7 +206,47 @@ export default function Dashboard() {
     [activeRooms, effectiveSelectedRoomId]
   );
 
+  // ── Splat manifest + shared video selection ─────────────────────────
+  const [manifest, setManifest] = useState<SplatManifest | null>(null);
+  const [selected, setSelected] = useState<SelectedVideo | null>({
+    videoId: DEFAULT_VIDEO_ID,
+    source: "local",
+  });
+
+  const refreshManifest = useCallback(async () => {
+    try {
+      const res = await fetch("/clouds/splats/manifest.json", { cache: "no-store" });
+      if (!res.ok) throw new Error(`manifest ${res.status}`);
+      const payload = (await res.json()) as SplatManifest;
+      setManifest(payload);
+    } catch {
+      setManifest({ version: 1, videos: {} });
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshManifest();
+  }, [refreshManifest]);
+
+  // While any splat in the manifest is still processing, poll periodically
+  // so the UI flips from 'processing…' → 'ready' without a manual reload.
+  useEffect(() => {
+    if (!manifest) return;
+    const anyProcessing = Object.values(manifest.videos).some(
+      (v) => v.status === "processing"
+    );
+    if (!anyProcessing) return;
+    const id = window.setInterval(refreshManifest, 4000);
+    return () => window.clearInterval(id);
+  }, [manifest, refreshManifest]);
+
+  const selectionCtx = useMemo<SelectedVideoCtx>(
+    () => ({ selected, setSelected, manifest, refreshManifest }),
+    [selected, manifest, refreshManifest]
+  );
+
   return (
+    <SelectedVideoContext.Provider value={selectionCtx}>
     <div className="alerts-page dashboard-page relative h-full w-full overflow-hidden bg-[var(--background)]">
       {bootPhase !== "hidden" && (
         <div
@@ -206,10 +308,7 @@ export default function Dashboard() {
                 )}
 
                 <div className="flex min-w-0 flex-col gap-3 lg:w-[min(34vw,520px)] lg:min-w-[min(34vw,520px)]">
-                  <SparseSplatPanel
-                    localUrl="/clouds/sparse.lbmp"
-                    pointerUrl="/clouds/sparse.url.json"
-                  />
+                  <SparseSplatPanel />
                   <VideoSearchPanel />
                 </div>
 
@@ -230,6 +329,7 @@ export default function Dashboard() {
         </main>
       </div>
     </div>
+    </SelectedVideoContext.Provider>
   );
 }
 
@@ -382,16 +482,20 @@ type FeedSource =
   | { kind: "user"; src: string; name: string };
 
 function LandscapeCameraFeed() {
+  const { setSelected, refreshManifest } = useSelectedVideo();
   const [feed, setFeed] = useState<FeedSource | null>(null);
   const [library, setLibrary] = useState<CloudinaryFootage[]>([]);
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "error">("idle");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const userObjectUrlRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Resolve the default feed: prefer the local mp4, fall back to cloudinary
-  // pointer JSON. User picks below override this.
+  // pointer JSON. User picks below override this. The default video also
+  // becomes the initial SelectedVideoContext target so the splat panel
+  // shows its sparse cloud out of the box.
   useEffect(() => {
     let cancelled = false;
     const localUrl = "/clouds/video.mp4";
@@ -457,14 +561,33 @@ function LandscapeCameraFeed() {
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [pickerOpen]);
 
-  const onUploadPick = (e: ChangeEvent<HTMLInputElement>) => {
+  const onUploadPick = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    // Show local playback immediately while the server uploads to
+    // Cloudinary and starts COLMAP — gives the user instant feedback.
     if (userObjectUrlRef.current) URL.revokeObjectURL(userObjectUrlRef.current);
-    const url = URL.createObjectURL(file);
-    userObjectUrlRef.current = url;
-    setFeed({ kind: "user", src: url, name: file.name });
+    const localUrl = URL.createObjectURL(file);
+    userObjectUrlRef.current = localUrl;
+    setFeed({ kind: "user", src: localUrl, name: file.name });
     setPickerOpen(false);
+
+    setUploadStatus("uploading");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/upload-video", { method: "POST", body: form });
+      if (!res.ok) throw new Error(`upload ${res.status}: ${await res.text()}`);
+      const payload = (await res.json()) as { videoId?: string; videoUrl?: string };
+      if (payload.videoId) {
+        setSelected({ videoId: payload.videoId, source: "user" });
+        await refreshManifest();
+      }
+      setUploadStatus("idle");
+    } catch {
+      setUploadStatus("error");
+    }
+    e.target.value = "";
   };
 
   const pickStreamUrl = () => {
@@ -479,7 +602,11 @@ function LandscapeCameraFeed() {
 
   const sourceLabel =
     feed?.kind === "user"
-      ? `uploaded · ${feed.name}`
+      ? uploadStatus === "uploading"
+        ? `uploading · ${feed.name}`
+        : uploadStatus === "error"
+          ? `upload failed · ${feed.name}`
+          : `uploaded · ${feed.name}`
       : feed?.kind === "cloudinary"
         ? `cloudinary · ${feed.label}`
         : feed?.kind === "stream"
@@ -549,6 +676,7 @@ function LandscapeCameraFeed() {
                     type="button"
                     onClick={() => {
                       setFeed({ kind: "cloudinary", src: v.url, label: v.name });
+                      setSelected({ videoId: publicIdToVideoId(v.id), source: "cloudinary" });
                       setPickerOpen(false);
                     }}
                     className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition hover:bg-[var(--primary)]/8"
@@ -589,53 +717,22 @@ function LandscapeCameraFeed() {
   );
 }
 
-function SparseSplatPanel({
-  localUrl,
-  pointerUrl,
-}: {
-  localUrl: string;
-  pointerUrl: string;
-}) {
-  const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
-  const [source, setSource] = useState<"local" | "cloudinary">("local");
+function SparseSplatPanel() {
+  const { selected, manifest } = useSelectedVideo();
+  const record = selected ? manifest?.videos[selected.videoId] ?? null : null;
+  const status: SplatStatus | "unknown" = record?.status ?? (manifest ? "unknown" : "processing");
 
-  useEffect(() => {
-    let cancelled = false;
+  const lbmpUrl = record?.lbmpPath ?? null;
+  const pathUrl = record?.pathPath ?? null;
 
-    // Local-first: probe the static file. If served, use it. Only fall back to
-    // the Cloudinary pointer JSON when local is missing or unreachable.
-    (async () => {
-      try {
-        const head = await fetch(localUrl, { method: "HEAD", cache: "no-store" });
-        if (!cancelled && head.ok) {
-          setResolvedUrl(localUrl);
-          setSource("local");
-          return;
-        }
-      } catch {
-        // fall through
-      }
-
-      try {
-        const res = await fetch(pointerUrl, { cache: "no-store" });
-        if (!res.ok) throw new Error(`pointer ${res.status}`);
-        const payload = (await res.json()) as { url?: string };
-        if (!cancelled && payload?.url) {
-          setResolvedUrl(payload.url);
-          setSource("cloudinary");
-        }
-      } catch {
-        if (!cancelled) {
-          setResolvedUrl(localUrl);
-          setSource("local");
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [localUrl, pointerUrl]);
+  const statusLabel =
+    status === "ready"
+      ? "ready"
+      : status === "processing"
+        ? "processing…"
+        : status === "failed"
+          ? "failed"
+          : "no splat";
 
   return (
     <div className="min-h-[min(50vh,520px)] min-w-0 overflow-hidden rounded-[16px] border border-[var(--primary)] bg-white/22 shadow-[0_1px_0_rgba(255,255,255,0.22)_inset,0_18px_48px_rgba(15,15,15,0.08)] transition-[width,transform,box-shadow] duration-300 ease-out">
@@ -645,23 +742,34 @@ function SparseSplatPanel({
             sparse_splat
           </p>
           <p className="mt-1 truncate text-[13px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
-            COLMAP reconstruction
+            {record?.label ?? selected?.videoId ?? "no video selected"}
           </p>
         </div>
-        <StatusPill label={source === "cloudinary" ? "cloudinary" : "local"} />
+        <StatusPill label={statusLabel} />
       </div>
 
       <div className="bg-black/8 p-3 transition-[padding] duration-300">
         <div className="relative aspect-video overflow-hidden rounded-[14px] border border-[var(--primary)]/55 bg-black/12 shadow-[0_1px_0_rgba(255,255,255,0.16)_inset] transition-[height] duration-300">
-          {resolvedUrl ? (
+          {lbmpUrl && status === "ready" ? (
             <PointCloudViewer
-              url={resolvedUrl}
+              key={selected?.videoId ?? "none"}
+              url={lbmpUrl}
               pointSizeFactor={0.0014}
-              pathUrl="/clouds/sparse.path.json"
+              pathUrl={pathUrl ?? undefined}
               lockElevation
               flipUp
             />
-          ) : null}
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center bg-[linear-gradient(135deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))]">
+              <div className="rounded-[12px] border border-[var(--primary)]/45 bg-black/45 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-white/85">
+                {status === "processing"
+                  ? "Building sparse splat…"
+                  : status === "failed"
+                    ? `Splat failed: ${record?.error ?? "unknown"}`
+                    : "No splat for this video yet"}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -669,7 +777,9 @@ function SparseSplatPanel({
         <div className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
           <span>colmap · sparse · path</span>
           <span className="text-[var(--muted-foreground)]/55">/</span>
-          <span className="truncate">{source === "cloudinary" ? "served from cdn" : "served locally"}</span>
+          <span className="truncate">
+            {record?.points ? `${record.points.toLocaleString()} pts` : statusLabel}
+          </span>
         </div>
       </div>
     </div>
