@@ -4,6 +4,7 @@ import { WebSocket, WebSocketServer } from "ws";
 const port = Number(process.env.FRAME_STREAM_PORT ?? 8787);
 const host = process.env.FRAME_STREAM_HOST ?? "0.0.0.0";
 const maxViewerBufferBytes = Number(process.env.FRAME_STREAM_MAX_VIEWER_BUFFER_BYTES ?? 512 * 1024);
+const memoryApiUrl = process.env.MEMORY_API_URL?.replace(/\/+$/, "") ?? "";
 const rooms = new Map();
 let nextSocketId = 1;
 
@@ -18,6 +19,34 @@ function normalizeModelOutputs(modelOutputs = {}) {
 function log(event, data = {}) {
   const time = new Date().toISOString();
   console.log(`[signal ${time}] ${event}`, data);
+}
+
+async function forwardModelOutputToMemory(roomId, kind, payload) {
+  if (!memoryApiUrl) return;
+
+  const body = {
+    camera_id: roomId,
+    kind,
+    payload,
+  };
+
+  try {
+    const response = await fetch(`${memoryApiUrl}/ingest/events`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      log("memory_forward_failed", { roomId, kind, status: response.status, body: text.slice(0, 300) });
+    }
+  } catch (error) {
+    log("memory_forward_failed", {
+      roomId,
+      kind,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 function getRoom(roomId) {
@@ -252,6 +281,7 @@ wss.on("connection", (socket) => {
       room.modelOutputs[kind] = payload.payload;
       room.updatedAt = new Date().toISOString();
       log("model_output_received", { roomId, kind, hasText: Boolean(payload.payload?.output?.text) });
+      void forwardModelOutputToMemory(roomId, kind, payload.payload);
       return;
     }
   });

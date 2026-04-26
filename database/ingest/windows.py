@@ -55,6 +55,11 @@ def _bucket_start(ts: datetime) -> datetime:
     return datetime.fromtimestamp(floored, tz=timezone.utc)
 
 
+def bucket_bounds(ts: datetime) -> tuple[datetime, datetime]:
+    started_at = _bucket_start(ts)
+    return started_at, started_at + timedelta(seconds=WINDOW_SECONDS)
+
+
 def _parse_ts(record: dict) -> datetime:
     raw = record.get("ts") or record.get("timestamp")
     if raw is None:
@@ -80,14 +85,14 @@ def aggregate(records: Iterable[dict]) -> Iterator[Window]:
 
     for rec in records:
         ts = _parse_ts(rec)
-        bucket = _bucket_start(ts)
+        bucket, bucket_end = bucket_bounds(ts)
 
         if current is None:
-            current = Window(bucket, bucket + timedelta(seconds=WINDOW_SECONDS))
+            current = Window(bucket, bucket_end)
 
         if bucket > current.started_at:
             yield current
-            current = Window(bucket, bucket + timedelta(seconds=WINDOW_SECONDS))
+            current = Window(bucket, bucket_end)
         elif bucket < current.started_at:
             continue
 

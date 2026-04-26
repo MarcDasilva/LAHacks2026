@@ -48,6 +48,11 @@ struct InferenceModelSettings {
     let maxFramesPerChunk: Int
     let audioSamplesPerChunk: Int
     let sttTimeoutSeconds: Int
+    let memoryLLMEnabled: Bool
+    let memoryLLMModelName: String
+    let memoryLLMModelVersion: Int?
+    let memoryLLMMaxMemories: Int
+    let memoryLLMMaxAnswerWords: Int
     let sessionID: String
     let sttOnHold: Bool
     let yoloOnHold: Bool
@@ -82,10 +87,15 @@ struct InferenceModelSettings {
         let maxFramesPerChunk = max(environment["RESPONDER_CHUNK_FRAMES"].flatMap(Int.init) ?? 6, 1)
         let audioSamplesPerChunk = max(environment["RESPONDER_AUDIO_SAMPLES_PER_CHUNK"].flatMap(Int.init) ?? 8_000, 4_000)
         let sttTimeoutSeconds = max(environment["RESPONDER_STT_TIMEOUT_SECONDS"].flatMap(Int.init) ?? 12, 1)
+        let memoryLLMEnabled = parseBool(environment["RESPONDER_MEMORY_LLM_ENABLED"], defaultValue: true)
+        let memoryLLMModelName = environment["ZETIC_MEMORY_LLM_MODEL_NAME"] ?? "changgeun/gemma-4-E2B-it"
+        let memoryLLMModelVersion = environment["ZETIC_MEMORY_LLM_MODEL_VERSION"].flatMap(Int.init) ?? 1
+        let memoryLLMMaxMemories = max(environment["RESPONDER_MEMORY_LLM_MAX_MEMORIES"].flatMap(Int.init) ?? 5, 1)
+        let memoryLLMMaxAnswerWords = max(environment["RESPONDER_MEMORY_LLM_MAX_ANSWER_WORDS"].flatMap(Int.init) ?? 80, 24)
         let sessionID = environment["RESPONDER_SESSION_ID"] ?? "optional-session-id"
-        let sttOnHold = parseBool(environment["RESPONDER_STT_ON_HOLD"], defaultValue: true)
-        let yoloOnHold = parseBool(environment["RESPONDER_YOLO_ON_HOLD"], defaultValue: true)
-        let yamnetOnHold = parseBool(environment["RESPONDER_YAMNET_ON_HOLD"], defaultValue: true)
+        let sttOnHold = parseBool(environment["RESPONDER_STT_ON_HOLD"], defaultValue: false)
+        let yoloOnHold = parseBool(environment["RESPONDER_YOLO_ON_HOLD"], defaultValue: false)
+        let yamnetOnHold = parseBool(environment["RESPONDER_YAMNET_ON_HOLD"], defaultValue: false)
         let speechLocale = environment["RESPONDER_SPEECH_LOCALE"] ?? "en-US"
 
         let settings = InferenceModelSettings(
@@ -105,6 +115,11 @@ struct InferenceModelSettings {
             maxFramesPerChunk: maxFramesPerChunk,
             audioSamplesPerChunk: audioSamplesPerChunk,
             sttTimeoutSeconds: sttTimeoutSeconds,
+            memoryLLMEnabled: memoryLLMEnabled,
+            memoryLLMModelName: memoryLLMModelName,
+            memoryLLMModelVersion: memoryLLMModelVersion,
+            memoryLLMMaxMemories: memoryLLMMaxMemories,
+            memoryLLMMaxAnswerWords: memoryLLMMaxAnswerWords,
             sessionID: sessionID,
             sttOnHold: sttOnHold,
             yoloOnHold: yoloOnHold,
