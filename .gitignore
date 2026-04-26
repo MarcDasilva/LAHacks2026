@@ -7,6 +7,16 @@ data/
 database/data/
 database/.venv/
 /9jYiR3Yltzb/
+/mobile/whisper-tiny/
+
+# Sparse-splat pipeline outputs — large binaries kept local-only.
+# The .lbmp + URL pointer JSONs are committed; the source video copy isn't.
+dashboard/public/clouds/video.mp4
+# COLMAP intermediates under assets/output (input video, frames, db, sparse model).
+assets/output/database.db
+assets/output/images/
+assets/output/sparse/
+assets/output/logs/
 
 # lingbot_bridge runtime artifacts (model weights, captures, derived data)
 lingbot_bridge/models/
@@ -41,3 +51,7 @@ fastlane/screenshots/**/*.png
 fastlane/test_output
 
 .env
+
+assets/output/images/
+
+venv/

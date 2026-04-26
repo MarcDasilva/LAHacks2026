@@ -78,13 +78,8 @@
       </CommandLineArguments>
       <EnvironmentVariables>
          <EnvironmentVariable
-            key = "RESPONDER_AUDIO_USER_PROMPT"
-            value = "Transcribe this audio in English."
-            isEnabled = "YES">
-         </EnvironmentVariable>
-         <EnvironmentVariable
-            key = "RESPONDER_STT_ON_HOLD"
-            value = "true"
+            key = ""
+            value = ""
             isEnabled = "YES">
          </EnvironmentVariable>
          <EnvironmentVariable
@@ -93,28 +88,38 @@
             isEnabled = "YES">
          </EnvironmentVariable>
          <EnvironmentVariable
-            key = "RESPONDER_FRAME_STREAM_ENABLED"
-            value = "true"
+            key = "ZETIC_AUDIO_ENCODER_MODEL_NAME"
+            value = "zetic/qwen2.5_omni_audio_encoder_chunk_f16"
             isEnabled = "YES">
          </EnvironmentVariable>
          <EnvironmentVariable
-            key = "RESPONDER_FRAME_STREAM_WS_URL"
-            value = "ws://10.30.75.222:8787"
+            key = ""
+            value = ""
             isEnabled = "YES">
          </EnvironmentVariable>
          <EnvironmentVariable
             key = "RESPONDER_FRAME_STREAM_ROOM_ID"
-            value = "cam-03"
+            value = "main-camera"
             isEnabled = "YES">
          </EnvironmentVariable>
          <EnvironmentVariable
-            key = "RESPONDER_FRAME_STREAM_FPS"
-            value = "15"
+            key = "RESPONDER_AUDIO_SYSTEM_PROMPT"
+            value = "You are a precise audio transcription assistant."
             isEnabled = "YES">
          </EnvironmentVariable>
          <EnvironmentVariable
-            key = "RESPONDER_FRAME_STREAM_JPEG_QUALITY"
-            value = ".4"
+            key = "RESPONDER_FRAME_STREAM_WS_URL "
+            value = "ws://10.30.75.222:8787"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "RESPONDER_FRAME_STREAM_ROOM_ID "
+            value = "main-camera"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "RESPONDER_MEMORY_DEFAULT_MESSAGE"
+            value = "THE MAN IS IN THE CHAIR"
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>

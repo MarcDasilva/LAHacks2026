@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "videos": {
+    "impulse__sparse_source": {
+      "videoId": "impulse__sparse_source",
+      "videoUrl": "https://res.cloudinary.com/dylbj2vom/video/upload/v1777177030/impulse/sparse_source.mp4",
+      "videoLocalPath": "/clouds/video.mp4",
+      "lbmpPath": "/clouds/sparse.lbmp",
+      "pathPath": "/clouds/sparse.path.json",
+      "status": "ready",
+      "label": "sparse_source"
+    },
+    "impulse__uploads__1777180029794_65e6c325_IMG_0719": {
+      "videoId": "impulse__uploads__1777180029794_65e6c325_IMG_0719",
+      "videoUrl": "https://res.cloudinary.com/dylbj2vom/video/upload/v1777180080/impulse/uploads/1777180029794_65e6c325_IMG_0719.mp4",
+      "label": "IMG_0719",
+      "lbmpPath": "/clouds/splats/impulse__uploads__1777180029794_65e6c325_IMG_0719/sparse.lbmp",
+      "pathPath": "/clouds/splats/impulse__uploads__1777180029794_65e6c325_IMG_0719/sparse.path.json",
+      "status": "processing"
+    },
+    "impulse__uploads__1777180199501_6c0ecfe7_IMG_0719": {
+      "videoId": "impulse__uploads__1777180199501_6c0ecfe7_IMG_0719",
+      "videoUrl": "https://res.cloudinary.com/dylbj2vom/video/upload/v1777180273/impulse/uploads/1777180199501_6c0ecfe7_IMG_0719.mp4",
+      "label": "IMG_0719",
+      "lbmpPath": "/clouds/splats/impulse__uploads__1777180199501_6c0ecfe7_IMG_0719/sparse.lbmp",
+      "pathPath": "/clouds/splats/impulse__uploads__1777180199501_6c0ecfe7_IMG_0719/sparse.path.json",
+      "status": "processing"
+    }
+  }
+}

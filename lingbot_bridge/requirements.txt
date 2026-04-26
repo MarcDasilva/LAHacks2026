@@ -1,9 +1,0 @@
-fastapi>=0.111
-uvicorn[standard]>=0.30
-python-multipart>=0.0.9
-pydantic>=2.7
-pillow>=10.0
-huggingface_hub[cli]>=0.24
-hf_transfer>=0.1.6
-watchfiles>=0.22
-viser>=0.2.7
