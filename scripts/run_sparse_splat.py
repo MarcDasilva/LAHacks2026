@@ -67,15 +67,20 @@ def run_colmap(workspace: Path, images_dir: Path) -> Path:
 
     # Higher feature budget + lower peak threshold = many more SIFT keypoints
     # per image, which translates into a denser sparse cloud after mapping.
+    # Big feature budget + low peak threshold + DSP-SIFT (multiple scales
+    # per descriptor) + affine-shape estimation for more triangulatable
+    # keypoints per image. Slow but the bottleneck for hitting 30K+ points.
     run([
         "colmap", "feature_extractor",
         "--database_path", str(db),
         "--image_path", str(images_dir),
         "--ImageReader.single_camera", "1",
         "--FeatureExtraction.use_gpu", "0",
-        "--SiftExtraction.max_num_features", "20480",
-        "--SiftExtraction.peak_threshold", "0.0025",
-        "--SiftExtraction.edge_threshold", "14",
+        "--SiftExtraction.max_num_features", "24576",
+        "--SiftExtraction.peak_threshold", "0.001",
+        "--SiftExtraction.edge_threshold", "16",
+        "--SiftExtraction.estimate_affine_shape", "1",
+        "--SiftExtraction.domain_size_pooling", "1",
     ])
     # Exhaustive matching across the ~hundred-frame video maximises loop
     # closures, which the mapper triangulates into additional points.
@@ -83,6 +88,8 @@ def run_colmap(workspace: Path, images_dir: Path) -> Path:
         "colmap", "exhaustive_matcher",
         "--database_path", str(db),
         "--FeatureMatching.use_gpu", "0",
+        "--FeatureMatching.guided_matching", "1",
+        "--SiftMatching.max_ratio", "0.85",
     ])
     run([
         "colmap", "mapper",
@@ -276,7 +283,7 @@ def main() -> int:
                     help="where to write the camera trajectory JSON for the splat overlay")
     ap.add_argument("--skip-upload", action="store_true", help="don't push the LBMP to cloudinary")
     ap.add_argument("--skip-video-upload", action="store_true", help="don't push the source video to cloudinary")
-    ap.add_argument("--fps", type=float, default=2.0, help="frames per second to sample from video")
+    ap.add_argument("--fps", type=float, default=3.0, help="frames per second to sample from video")
     ap.add_argument("--skip-extract", action="store_true", help="reuse existing frames in <workspace>/images/")
     ap.add_argument("--skip-colmap", action="store_true", help="reuse existing sparse/*/points3D.bin")
     args = ap.parse_args()
