@@ -126,6 +126,19 @@
   html {
     scroll-behavior: smooth;
   }
+
+  /* Hide Next.js dev indicator/dev-tools badge UI. */
+  nextjs-portal,
+  [data-nextjs-toast],
+  [data-nextjs-dev-tools-button],
+  [data-next-badge-root],
+  #nextjs__container,
+  #__next-build-watcher,
+  [id^="__next-dev-tools"],
+  [class*="nextjs-dev-tools"],
+  [class*="next-dev-tools"] {
+    display: none !important;
+  }
 }
 
 @layer utilities {
