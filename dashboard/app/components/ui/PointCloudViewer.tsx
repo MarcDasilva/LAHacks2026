@@ -47,13 +47,16 @@ export function PointCloudViewer({
   downsample,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [status, setStatus] = useState<"loading" | "reconstructing" | "ready" | "error">("loading");
   const [pointCount, setPointCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [progressFrames, setProgressFrames] = useState<number | null>(null);
+  const [sessionStatus, setSessionStatus] = useState<string | null>(null);
 
   useEffect(() => {
     let cloudUrl = url;
     let frustumUrl: string | null = null;
+    let sessionUrl: string | null = null;
     if (!cloudUrl && bridgeUrl && sessionId) {
       const base = `${bridgeUrl.replace(/\/$/, "")}/sessions/${sessionId}`;
       const qs: string[] = [];
@@ -61,6 +64,7 @@ export function PointCloudViewer({
       if (downsample !== undefined) qs.push(`downsample=${downsample}`);
       cloudUrl = `${base}/cloud${qs.length ? `?${qs.join("&")}` : ""}`;
       frustumUrl = `${base}/frustums`;
+      sessionUrl = base;
     }
     if (!cloudUrl) {
       setStatus("error");
@@ -71,8 +75,42 @@ export function PointCloudViewer({
 
     let disposed = false;
     let cleanup: (() => void) | null = null;
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // Wait until the bridge says this session is done before fetching the
+    // (potentially multi-MB) cloud/frustum blobs. While reconstructing,
+    // surface frame count as a coarse progress indicator.
+    const waitForReady = async (): Promise<boolean> => {
+      if (!sessionUrl) return true; // direct url= mode skips status gating
+      while (!disposed) {
+        const res = await fetch(sessionUrl, { cache: "no-store" }).catch(() => null);
+        if (!res || !res.ok) {
+          // 404 → session doesn't exist yet (e.g. user opened tab before upload).
+          // Keep polling; user may upload momentarily.
+          setSessionStatus(res ? `http ${res.status}` : "offline");
+          await new Promise(r => { pollTimer = setTimeout(r, 2000); });
+          continue;
+        }
+        const s = await res.json();
+        if (disposed) return false;
+        setSessionStatus(s.status);
+        setProgressFrames(typeof s.frames === "number" ? s.frames : null);
+        if (s.status === "done") return true;
+        if (s.status === "failed") {
+          setStatus("error");
+          setError(s.error ?? "reconstruction failed");
+          return false;
+        }
+        setStatus("reconstructing");
+        await new Promise(r => { pollTimer = setTimeout(r, 2000); });
+      }
+      return false;
+    };
 
     (async () => {
+      const ready = await waitForReady();
+      if (!ready || disposed) return;
+      setStatus("loading");
       const THREE = await import("three");
 
       const [cloudRes, frustumRes] = await Promise.all([
@@ -374,14 +412,26 @@ export function PointCloudViewer({
 
     return () => {
       disposed = true;
+      if (pollTimer) clearTimeout(pollTimer);
       cleanup?.();
     };
   }, [url, bridgeUrl, sessionId, pointSizeFactor, conf, downsample]);
 
   return (
     <div ref={containerRef} className="absolute inset-0 rounded-[14px] overflow-hidden">
+      {(status === "loading" || status === "reconstructing") && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[var(--card)]/40 backdrop-blur-sm">
+          <div className="h-6 w-6 rounded-full border-2 border-[var(--muted-foreground)] border-t-[var(--foreground)] animate-spin" />
+          <div className="text-[10px] font-mono text-[var(--muted-foreground)] uppercase tracking-widest">
+            {status === "reconstructing"
+              ? `reconstructing${progressFrames != null ? ` · ${progressFrames} frames` : ""}`
+              : sessionStatus === "offline" || sessionStatus?.startsWith("http")
+                ? "waiting for session…"
+                : "loading…"}
+          </div>
+        </div>
+      )}
       <div className="absolute bottom-3 right-3 z-10 text-[10px] text-[var(--muted-foreground)] font-mono">
-        {status === "loading" && "loading…"}
         {status === "ready" && `${pointCount.toLocaleString()} pts · drag · scroll`}
         {status === "error" && `error: ${error ?? "unknown"}`}
       </div>

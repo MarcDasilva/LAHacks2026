@@ -196,7 +196,11 @@ def get_cloud(
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))
 
-    return Response(content=blob, media_type="application/octet-stream")
+    return Response(
+        content=blob,
+        media_type="application/octet-stream",
+        headers={"Cache-Control": "public, max-age=86400, immutable"},
+    )
 
 
 _replay_lock = threading.Lock()
@@ -269,4 +273,8 @@ def get_frustums(session_id: str) -> Response:
         )
     except (FileNotFoundError, ValueError) as e:
         raise HTTPException(404, str(e))
-    return Response(content=blob, media_type="application/octet-stream")
+    return Response(
+        content=blob,
+        media_type="application/octet-stream",
+        headers={"Cache-Control": "public, max-age=86400, immutable"},
+    )
