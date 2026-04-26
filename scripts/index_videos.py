@@ -77,6 +77,14 @@ def list_cloudinary_videos() -> list[dict]:
     return list(result.get("resources", []))
 
 
+def fetch_cloudinary_video(public_id: str) -> dict:
+    import cloudinary  # type: ignore
+    import cloudinary.api  # type: ignore
+
+    cloudinary.config()
+    return dict(cloudinary.api.resource(public_id, resource_type="video"))
+
+
 def download_video(url: str, dest: Path) -> None:
     print(f"  → downloading {url}")
     with urllib.request.urlopen(url) as r, dest.open("wb") as f:
@@ -179,8 +187,14 @@ def save_index(path: Path, index: dict) -> None:
     path.write_text(json.dumps(index) + "\n")
 
 
+def public_id_to_video_id(public_id: str) -> str:
+    """Match the dashboard manifest convention so search results join cleanly."""
+    return public_id.replace("/", "__").replace("\\", "__")
+
+
 def index_video(video_meta: dict, api_key: str, interval: float) -> list[dict]:
-    video_id = video_meta["public_id"]
+    public_id = video_meta["public_id"]
+    video_id = public_id_to_video_id(public_id)
     secure_url = video_meta["secure_url"]
     out: list[dict] = []
     with tempfile.TemporaryDirectory() as tmp:
@@ -227,6 +241,9 @@ def main() -> int:
                     help="seconds per sampled segment")
     ap.add_argument("--force", action="store_true",
                     help="re-index every video even if entries already exist")
+    ap.add_argument("--public-id", default=None,
+                    help="index a single Cloudinary video by public_id "
+                         "(skips the library scan; implies --force for that video)")
     args = ap.parse_args()
 
     if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
@@ -236,27 +253,50 @@ def main() -> int:
     load_dotenv(args.env_file)
     _, openai_key = ensure_keys()
 
-    videos = list_cloudinary_videos()
-    print(f"cloudinary library: {len(videos)} videos")
+    if args.public_id:
+        # Cloudinary needs a brief moment between upload and the resource
+        # being queryable; retry up to a few times before giving up.
+        videos: list[dict] = []
+        last_err: Exception | None = None
+        for _ in range(5):
+            try:
+                videos = [fetch_cloudinary_video(args.public_id)]
+                break
+            except Exception as e:  # noqa: BLE001
+                last_err = e
+                import time as _time
+                _time.sleep(2.0)
+        if not videos:
+            print(f"cloudinary resource not found: {args.public_id} ({last_err})", file=sys.stderr)
+            return 1
+    else:
+        videos = list_cloudinary_videos()
+    print(f"to index: {len(videos)} video(s)")
 
     index = load_index(args.index)
     indexed_ids = {e["videoId"] for e in index["entries"]}
     new_entries: list[dict] = []
 
+    # Single-id mode always re-indexes that one video; library mode only
+    # re-indexes when --force is set.
+    force_all = bool(args.force or args.public_id)
+
     for v in videos:
-        video_id = v["public_id"]
-        if not args.force and video_id in indexed_ids:
+        public_id = v["public_id"]
+        video_id = public_id_to_video_id(public_id)
+        if not force_all and video_id in indexed_ids:
             print(f"  skip (indexed): {video_id}")
             continue
         print(f"  indexing: {video_id}")
         new_entries.extend(index_video(v, openai_key, args.interval))
 
-    if args.force:
-        index["entries"] = new_entries
-    else:
-        new_ids = {n["videoId"] for n in new_entries}
-        index["entries"] = [e for e in index["entries"] if e["videoId"] not in new_ids]
-        index["entries"].extend(new_entries)
+    # Always merge by videoId — replace entries for any video that was
+    # re-indexed this run, leave the rest alone. The only time the whole
+    # file gets rewritten is when --force is set without --public-id and
+    # every entry is in `new_entries`.
+    new_ids = {n["videoId"] for n in new_entries}
+    index["entries"] = [e for e in index["entries"] if e["videoId"] not in new_ids]
+    index["entries"].extend(new_entries)
 
     index["model"] = EMBED_MODEL
     save_index(args.index, index)

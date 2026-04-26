@@ -806,6 +806,7 @@ type SearchResult = {
 };
 
 function VideoSearchPanel() {
+  const { selected, manifest } = useSelectedVideo();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [status, setStatus] = useState<"idle" | "searching" | "error" | "empty">("idle");
@@ -813,13 +814,36 @@ function VideoSearchPanel() {
   const [active, setActive] = useState<SearchResult | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
+  // Wipe results when the selected video changes — they were ranked
+  // against the previous video's segments, not the new one.
+  useEffect(() => {
+    setResults([]);
+    setActive(null);
+    setStatus("idle");
+    setErrorMsg(null);
+  }, [selected?.videoId]);
+
+  const selectedLabel = selected
+    ? manifest?.videos[selected.videoId]?.label ?? selected.videoId
+    : null;
+
   const submit = async () => {
     const q = query.trim();
     if (!q) return;
+    if (!selected?.videoId) {
+      setStatus("error");
+      setErrorMsg("pick a video first");
+      return;
+    }
     setStatus("searching");
     setErrorMsg(null);
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&limit=6`, {
+      const params = new URLSearchParams({
+        q,
+        limit: "6",
+        video: selected.videoId,
+      });
+      const res = await fetch(`/api/search?${params.toString()}`, {
         cache: "no-store",
       });
       const payload = (await res.json()) as {
@@ -865,11 +889,11 @@ function VideoSearchPanel() {
             video_search
           </p>
           <p className="mt-1 truncate text-[13px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
-            Natural-language clip retrieval
+            {selectedLabel ? `Search · ${selectedLabel}` : "Natural-language clip retrieval"}
           </p>
         </div>
         <span className="rounded-[9px] border border-[var(--primary)]/60 bg-white/20 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--foreground)]">
-          openai
+          GEMMA
         </span>
       </div>
 
@@ -928,7 +952,7 @@ function VideoSearchPanel() {
           </p>
         ) : results.length === 0 ? (
           <p className="px-3 py-3 text-[12px] font-semibold text-[var(--muted-foreground)]">
-            run <span className="font-mono">scripts/index_videos.py</span> to build the index, then describe a moment to find it.
+            describe a moment in <span className="font-mono">{selectedLabel ?? "the selected video"}</span> to find it.
           </p>
         ) : (
           results.map((r, i) => {
