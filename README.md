@@ -18,20 +18,8 @@ IMPULSE is a command center for emergency responders (fire, EMS, police). It uni
 
 ## Architecture
 
-```
-iOS Responder App  (ZETIC Melange — Apple Neural Engine)
-    │
-    ├──(JPEG frames)──────▶ LingBot Bridge   ──▶ 3D Point Cloud
-    │                        (GPU server)
-    │
-    └──(WebRTC / WS)──────▶ Frame Stream Server (Node.js)
-                                 │
-                                 └──▶ Dashboard (Next.js)
-                                          │
-                                          └──▶ Database + Search API
-                                               (FastAPI + pgvector)
-                                               ← runs on ASUS GX10 →
-```
+<img width="1441" height="413" alt="diagram" src="https://github.com/user-attachments/assets/01c13e68-3a2c-4aa9-994a-e00b4ba900ec" />
+
 
 The **ASUS GX10** is the central on-site hub. It runs the database, search API, and frame relay. The LingBot bridge lives on a separate GPU server (NVIDIA DGX). The iOS app does all ML inference locally on-device.
 
