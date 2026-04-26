@@ -749,7 +749,7 @@ function VideoSearchPanel() {
           </p>
         </div>
         <span className="rounded-[9px] border border-[var(--primary)]/60 bg-white/20 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--foreground)]">
-          gemini
+          openai
         </span>
       </div>
 
