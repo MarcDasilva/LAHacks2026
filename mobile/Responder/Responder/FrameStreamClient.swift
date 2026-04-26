@@ -24,17 +24,17 @@ struct FrameStreamSettings {
     let maxBitrateKbps: Int
 
     static func fromEnvironment(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> FrameStreamSettings {
-        let wsURLString = sanitizeEnvValue(environment["RESPONDER_FRAME_STREAM_WS_URL"]) ?? "ws://localhost:8787"
-        let roomID = sanitizeEnvValue(environment["RESPONDER_FRAME_STREAM_ROOM_ID"]) ?? "main-camera"
-        let enabled = Self.parseBool(sanitizeEnvValue(environment["RESPONDER_FRAME_STREAM_ENABLED"]), defaultValue: true)
-        let targetFPS = max(sanitizeEnvValue(environment["RESPONDER_FRAME_STREAM_FPS"]).flatMap(Int.init) ?? 30, 1)
-        let qualityRaw = sanitizeEnvValue(environment["RESPONDER_FRAME_STREAM_JPEG_QUALITY"]).flatMap(Double.init) ?? 0.65
+        let wsURLString = sanitizedEnvironmentValue("RESPONDER_FRAME_STREAM_WS_URL", in: environment) ?? "ws://localhost:8787"
+        let roomID = sanitizedEnvironmentValue("RESPONDER_FRAME_STREAM_ROOM_ID", in: environment) ?? "main-camera"
+        let enabled = Self.parseBool(sanitizedEnvironmentValue("RESPONDER_FRAME_STREAM_ENABLED", in: environment), defaultValue: true)
+        let targetFPS = max(sanitizedEnvironmentValue("RESPONDER_FRAME_STREAM_FPS", in: environment).flatMap(Int.init) ?? 30, 1)
+        let qualityRaw = sanitizedEnvironmentValue("RESPONDER_FRAME_STREAM_JPEG_QUALITY", in: environment).flatMap(Double.init) ?? 0.65
         let jpegQuality = CGFloat(min(max(qualityRaw, 0.1), 0.95))
-        let maxDimensionRaw = sanitizeEnvValue(environment["RESPONDER_FRAME_STREAM_MAX_DIMENSION"]).flatMap(Double.init) ?? 1920
+        let maxDimensionRaw = sanitizedEnvironmentValue("RESPONDER_FRAME_STREAM_MAX_DIMENSION", in: environment).flatMap(Double.init) ?? 1920
         let maxFrameDimension = CGFloat(max(maxDimensionRaw, 160))
-        let transportValue = sanitizeEnvValue(environment["RESPONDER_FRAME_STREAM_TRANSPORT"])?.lowercased() ?? FrameStreamTransport.webrtc.rawValue
+        let transportValue = sanitizedEnvironmentValue("RESPONDER_FRAME_STREAM_TRANSPORT", in: environment)?.lowercased() ?? FrameStreamTransport.webrtc.rawValue
         let transport = FrameStreamTransport(rawValue: transportValue) ?? .webrtc
-        let maxBitrateKbps = max(sanitizeEnvValue(environment["RESPONDER_FRAME_STREAM_MAX_BITRATE_KBPS"]).flatMap(Int.init) ?? 5500, 150)
+        let maxBitrateKbps = max(sanitizedEnvironmentValue("RESPONDER_FRAME_STREAM_MAX_BITRATE_KBPS", in: environment).flatMap(Int.init) ?? 5500, 150)
 
         return FrameStreamSettings(
             enabled: enabled,
@@ -69,6 +69,18 @@ struct FrameStreamSettings {
         }
         value = value.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
         return value.isEmpty ? nil : value
+    }
+
+    private static func sanitizedEnvironmentValue(_ key: String, in environment: [String: String]) -> String? {
+        if let exact = sanitizeEnvValue(environment[key]) {
+            return exact
+        }
+
+        if let fallback = environment.first(where: { $0.key.trimmingCharacters(in: .whitespacesAndNewlines) == key })?.value {
+            return sanitizeEnvValue(fallback)
+        }
+
+        return nil
     }
 }
 

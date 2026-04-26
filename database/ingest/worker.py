@@ -1,18 +1,14 @@
 """Ingest worker.
 
-Reads JSON recognition records from stdin (one JSON object per line),
-groups them into 5s windows, embeds each window's deduped label set, and
-inserts into Postgres. If a recorded 5s mp4 exists for the window's start
-time (see ingest.config.clip_path), its public URI is stamped onto the
-row so the UI can fetch the clip.
+Reads JSON records from stdin (one object per line) and folds them into
+5-second per-camera memory windows in Postgres. Records may be:
+
+- legacy recognition rows with `ts` + `labels`
+- live multimodal rows with `kind` (`yolo` / `stt` / `yamnet`) plus text
 
 Running:
 
     cat recognition_stream.jsonl | python -m ingest.worker
-
-For live use, point the upstream model's stdout (or an HTTP-to-stdin shim)
-at this process. Replacing `iter_stdin` with a Kafka/WebSocket consumer is
-the natural extension.
 """
 
 from __future__ import annotations
@@ -25,14 +21,10 @@ from typing import Iterator
 import psycopg
 from pgvector.psycopg import register_vector
 
-from ingest.config import clip_uri
-from ingest.embed import embed
-from ingest.windows import Window, aggregate
+from ingest.db import default_dsn
+from ingest.store import ingest_record
 
-DSN = os.environ.get(
-    "PG_DSN",
-    "host=127.0.0.1 port=5432 dbname=lingbot user=lingbot password=lingbot",
-)
+DSN = default_dsn()
 
 
 def iter_stdin() -> Iterator[dict]:
@@ -43,33 +35,17 @@ def iter_stdin() -> Iterator[dict]:
         yield json.loads(line)
 
 
-def insert_window(cur: psycopg.Cursor, w: Window) -> None:
-    labels = w.labels
-    text = w.label_text or "(no labels)"
-    vec = embed(text)
-    uri = clip_uri(w.started_at)
-    cur.execute(
-        """
-        INSERT INTO chunks
-            (started_at, ended_at, labels, raw_json, embedding, video_uri)
-        VALUES
-            (%s, %s, %s, %s, %s, %s)
-        """,
-        (w.started_at, w.ended_at, labels, json.dumps(w.raw_json), vec, uri),
-    )
-
-
 def main() -> None:
     with psycopg.connect(DSN, autocommit=True) as conn:
         register_vector(conn)
         with conn.cursor() as cur:
             count = 0
-            for window in aggregate(iter_stdin()):
-                insert_window(cur, window)
+            for record in iter_stdin():
+                ingest_record(cur, record)
                 count += 1
                 if count % 10 == 0:
-                    print(f"[ingest] inserted {count} windows", file=sys.stderr)
-            print(f"[ingest] done, inserted {count} windows", file=sys.stderr)
+                    print(f"[ingest] processed {count} events", file=sys.stderr)
+            print(f"[ingest] done, processed {count} events", file=sys.stderr)
 
 
 if __name__ == "__main__":
