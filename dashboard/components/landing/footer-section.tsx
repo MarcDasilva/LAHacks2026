@@ -51,11 +51,10 @@ export function FooterSection() {
             <div className="col-span-2">
               <a href="#" className="inline-flex items-center gap-2 mb-6">
                 <span className="text-2xl font-display">IMPULSE</span>
-                <span className="text-xs text-muted-foreground font-display">TM</span>
               </a>
 
               <p className="text-muted-foreground leading-relaxed mb-8 max-w-xs">
-                The platform for teams who ship. Build, deploy, and scale with unprecedented velocity.
+                Real-time command intelligence for first responders. One interface for live feeds, AI detection, and field coordination.
               </p>
 
               {/* Social Links */}
