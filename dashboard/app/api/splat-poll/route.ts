@@ -48,6 +48,8 @@ type ManifestRecord = {
   splatJobId?: string;
   splatPath?: string;
   splatError?: string;
+  indexStatus?: "pending" | "ready" | "failed";
+  indexError?: string;
 };
 type Manifest = { version: number; videos: Record<string, ManifestRecord> };
 
@@ -58,6 +60,58 @@ const MANIFEST_PATH = path.join(
   "splats",
   "manifest.json"
 );
+
+const SEARCH_INDEX_PATH = path.join(
+  process.cwd(),
+  "public",
+  "clouds",
+  "search_index.json"
+);
+
+function normalizeVideoId(id: string): string {
+  return id.replace(/[\/\\]/g, "__");
+}
+
+type SearchIndex = {
+  entries?: Array<{ videoId?: string }>;
+};
+
+// Walks search_index.json once and flips indexStatus → "ready" for every
+// pending record whose videoId now has indexed entries. Cheap because the
+// index is small JSON and we only read it when at least one record is
+// pending.
+async function reconcileIndexStatus(manifest: Manifest): Promise<Manifest> {
+  const pendingIds = Object.values(manifest.videos)
+    .filter((r) => r.indexStatus === "pending")
+    .map((r) => r.videoId);
+  if (pendingIds.length === 0) return manifest;
+
+  let index: SearchIndex;
+  try {
+    const buf = await readFileAsync(SEARCH_INDEX_PATH, "utf8");
+    index = JSON.parse(buf) as SearchIndex;
+  } catch {
+    return manifest;
+  }
+  const indexed = new Set<string>();
+  for (const e of index.entries ?? []) {
+    if (e.videoId) indexed.add(normalizeVideoId(e.videoId));
+  }
+  let dirty = false;
+  for (const id of pendingIds) {
+    if (indexed.has(id)) {
+      const rec = manifest.videos[id];
+      if (rec) {
+        rec.indexStatus = "ready";
+        dirty = true;
+      }
+    }
+  }
+  if (dirty) {
+    await writeManifestAtomic(manifest);
+  }
+  return manifest;
+}
 
 async function readManifest(): Promise<Manifest> {
   try {
@@ -135,7 +189,8 @@ async function drain(): Promise<Manifest> {
 }
 
 export async function GET() {
-  const manifest = await drain();
+  const drained = await drain();
+  const manifest = await reconcileIndexStatus(drained);
   return NextResponse.json(manifest, {
     headers: { "cache-control": "no-store" },
   });
