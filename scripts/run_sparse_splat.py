@@ -29,6 +29,7 @@ DEFAULT_LBMP_OUT = REPO_ROOT / "dashboard/public/clouds/sparse.lbmp"
 DEFAULT_URL_JSON = REPO_ROOT / "dashboard/public/clouds/sparse.url.json"
 DEFAULT_VIDEO_URL_JSON = REPO_ROOT / "dashboard/public/clouds/video.url.json"
 DEFAULT_LOCAL_VIDEO = REPO_ROOT / "dashboard/public/clouds/video.mp4"
+DEFAULT_PATH_JSON = REPO_ROOT / "dashboard/public/clouds/sparse.path.json"
 DEFAULT_ENV_FILE = REPO_ROOT / ".env"
 
 LBMP_MAGIC = 0x4C424D50
@@ -89,6 +90,66 @@ def run_colmap(workspace: Path, images_dir: Path) -> Path:
         raise RuntimeError("colmap mapper produced no sub-models")
     best = max(submodels, key=lambda p: (p / "points3D.bin").stat().st_size if (p / "points3D.bin").exists() else 0)
     return best / "points3D.bin"
+
+
+def _read_null_terminated(f) -> str:
+    chunks: list[bytes] = []
+    while True:
+        ch = f.read(1)
+        if not ch or ch == b"\x00":
+            break
+        chunks.append(ch)
+    return b"".join(chunks).decode("utf-8", errors="replace")
+
+
+def read_colmap_camera_centers(images_bin: Path) -> list[tuple[str, tuple[float, float, float]]]:
+    """Parse COLMAP images.bin → list of (image_name, (cx, cy, cz)) in world space.
+
+    World-space camera center: C = -R^T · t, where R is built from the
+    Hamilton quaternion (qw, qx, qy, qz) COLMAP stores.
+    """
+    out: list[tuple[str, tuple[float, float, float]]] = []
+    with images_bin.open("rb") as f:
+        (num_images,) = struct.unpack("<Q", f.read(8))
+        for _ in range(num_images):
+            f.read(4)  # image_id
+            qw, qx, qy, qz = struct.unpack("<4d", f.read(32))
+            tx, ty, tz = struct.unpack("<3d", f.read(24))
+            f.read(4)  # camera_id
+            name = _read_null_terminated(f)
+            (num_points2d,) = struct.unpack("<Q", f.read(8))
+            f.read(num_points2d * 24)  # 2 × f64 + i64 per 2D observation
+
+            # R from quaternion (active rotation, COLMAP convention).
+            r00 = 1 - 2 * (qy * qy + qz * qz)
+            r01 = 2 * (qx * qy - qz * qw)
+            r02 = 2 * (qx * qz + qy * qw)
+            r10 = 2 * (qx * qy + qz * qw)
+            r11 = 1 - 2 * (qx * qx + qz * qz)
+            r12 = 2 * (qy * qz - qx * qw)
+            r20 = 2 * (qx * qz - qy * qw)
+            r21 = 2 * (qy * qz + qx * qw)
+            r22 = 1 - 2 * (qx * qx + qy * qy)
+
+            # C = -R^T · t  (R^T columns are the rows of R)
+            cx = -(r00 * tx + r10 * ty + r20 * tz)
+            cy = -(r01 * tx + r11 * ty + r21 * tz)
+            cz = -(r02 * tx + r12 * ty + r22 * tz)
+            out.append((name, (cx, cy, cz)))
+    return out
+
+
+def write_path_json(centers: list[tuple[str, tuple[float, float, float]]], out: Path) -> int:
+    """Write camera trajectory ordered by image name (frame_00001 → frame_NNNNN)."""
+    ordered = sorted(centers, key=lambda kv: kv[0])
+    payload = {
+        "count": len(ordered),
+        "points": [list(c) for _, c in ordered],
+        "frames": [name for name, _ in ordered],
+    }
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(payload) + "\n")
+    return len(ordered)
 
 
 def read_colmap_points3d(path: Path) -> list[tuple[float, float, float, float, float, float]]:
@@ -176,6 +237,8 @@ def main() -> int:
                     help="where to write the cloudinary video URL pointer JSON")
     ap.add_argument("--local-video-out", type=Path, default=DEFAULT_LOCAL_VIDEO,
                     help="copy of the source video served locally by Next.js (default consumer source)")
+    ap.add_argument("--path-json", type=Path, default=DEFAULT_PATH_JSON,
+                    help="where to write the camera trajectory JSON for the splat overlay")
     ap.add_argument("--skip-upload", action="store_true", help="don't push the LBMP to cloudinary")
     ap.add_argument("--skip-video-upload", action="store_true", help="don't push the source video to cloudinary")
     ap.add_argument("--fps", type=float, default=2.0, help="frames per second to sample from video")
@@ -218,6 +281,14 @@ def main() -> int:
 
     write_lbmp(points, args.out)
     print(f"wrote LBMP → {args.out} ({args.out.stat().st_size:,} bytes)")
+
+    images_bin = points3d_path.parent / "images.bin"
+    if images_bin.exists():
+        centers = read_colmap_camera_centers(images_bin)
+        n_path = write_path_json(centers, args.path_json)
+        print(f"wrote camera path ({n_path} poses) → {args.path_json}")
+    else:
+        print(f"images.bin not found at {images_bin} — skipping path export")
 
     if not args.skip_upload:
         secure_url = upload_to_cloudinary(args.out, args.cloudinary_public_id, "raw")

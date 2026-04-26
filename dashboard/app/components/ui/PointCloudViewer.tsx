@@ -10,6 +10,10 @@ interface Props {
   sessionId?: string;
   /** Ratio of point size to scene extent. Tune for visual density. */
   pointSizeFactor?: number;
+  /** Optional camera-trajectory JSON: { points: [[x,y,z], ...] } */
+  pathUrl?: string;
+  /** If true, drag only rotates around the vertical axis (azimuth). */
+  lockElevation?: boolean;
 }
 
 export function PointCloudViewer({
@@ -17,6 +21,8 @@ export function PointCloudViewer({
   bridgeUrl,
   sessionId,
   pointSizeFactor = 0.0025,
+  pathUrl,
+  lockElevation = false,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -147,6 +153,98 @@ export function PointCloudViewer({
       const cloud = new THREE.Points(geom, mat);
       scene.add(cloud);
 
+      // Optional camera-trajectory polyline. Fetched lazily so a missing
+      // path file doesn't block the cloud render. Coloured as a vertex
+      // gradient (early frames cool → late frames warm) so the direction
+      // of travel is readable at a glance.
+      const disposables: Array<{ dispose: () => void }> = [];
+      if (pathUrl) {
+        try {
+          const pathRes = await fetch(pathUrl, { cache: "no-store" });
+          if (pathRes.ok) {
+            const payload = (await pathRes.json()) as { points?: number[][] };
+            const pts = Array.isArray(payload.points) ? payload.points : [];
+            if (pts.length >= 2 && !disposed) {
+              const pp = new Float32Array(pts.length * 3);
+              const pc = new Float32Array(pts.length * 3);
+              for (let i = 0; i < pts.length; i++) {
+                pp[i * 3] = pts[i][0];
+                pp[i * 3 + 1] = pts[i][1];
+                pp[i * 3 + 2] = pts[i][2];
+                const t = i / Math.max(1, pts.length - 1);
+                // cool → warm gradient
+                pc[i * 3] = 0.35 + 0.55 * t;        // r
+                pc[i * 3 + 1] = 0.55 + 0.15 * (1 - t); // g
+                pc[i * 3 + 2] = 0.95 - 0.55 * t;    // b
+              }
+              // WebGL ignores Line linewidth on most drivers, so draw the
+              // trajectory as a TubeGeometry along a Catmull-Rom curve —
+              // gives a real, controllable thickness in 3D.
+              const curvePts: import("three").Vector3[] = [];
+              for (let i = 0; i < pts.length; i++) {
+                curvePts.push(new THREE.Vector3(pp[i * 3], pp[i * 3 + 1], pp[i * 3 + 2]));
+              }
+              const curve = new THREE.CatmullRomCurve3(curvePts, false, "catmullrom", 0.5);
+              const tubeGeom = new THREE.TubeGeometry(
+                curve,
+                Math.max(64, pts.length * 4),
+                maxExtent * 0.012,
+                10,
+                false
+              );
+              const tubeMat = new THREE.MeshBasicMaterial({
+                color: 0xff7a45,
+                transparent: true,
+                opacity: 0.95,
+                depthWrite: false,
+              });
+              scene.add(new THREE.Mesh(tubeGeom, tubeMat));
+              disposables.push(tubeGeom, tubeMat);
+
+              // Thin bright underline so the path remains crisp at any zoom.
+              const pathGeom = new THREE.BufferGeometry();
+              pathGeom.setAttribute("position", new THREE.BufferAttribute(pp, 3));
+              pathGeom.setAttribute("color", new THREE.BufferAttribute(pc, 3));
+              const pathMat = new THREE.LineBasicMaterial({
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.85,
+              });
+              scene.add(new THREE.Line(pathGeom, pathMat));
+              disposables.push(pathGeom, pathMat);
+
+              // Endpoint dots so the start/end of the trajectory pop.
+              const endsGeom = new THREE.BufferGeometry();
+              endsGeom.setAttribute(
+                "position",
+                new THREE.BufferAttribute(
+                  new Float32Array([pp[0], pp[1], pp[2], pp[pp.length - 3], pp[pp.length - 2], pp[pp.length - 1]]),
+                  3
+                )
+              );
+              endsGeom.setAttribute(
+                "color",
+                new THREE.BufferAttribute(
+                  new Float32Array([0.35, 0.7, 0.95, 0.9, 0.55, 0.4]),
+                  3
+                )
+              );
+              const endsMat = new THREE.PointsMaterial({
+                size: maxExtent * pointSizeFactor * 8,
+                vertexColors: true,
+                sizeAttenuation: true,
+                transparent: true,
+                opacity: 1.0,
+              });
+              scene.add(new THREE.Points(endsGeom, endsMat));
+              disposables.push(endsGeom, endsMat);
+            }
+          }
+        } catch {
+          // Path overlay is optional — never fail the whole render on it.
+        }
+      }
+
       const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(w, h);
@@ -178,7 +276,9 @@ export function PointCloudViewer({
       const onMove = (e: PointerEvent) => {
         if (!dragging) return;
         azimuth -= (e.clientX - lastX) * 0.005;
-        elevation = Math.max(-1.4, Math.min(1.4, elevation + (e.clientY - lastY) * 0.005));
+        if (!lockElevation) {
+          elevation = Math.max(-1.4, Math.min(1.4, elevation + (e.clientY - lastY) * 0.005));
+        }
         lastX = e.clientX;
         lastY = e.clientY;
         updateCamera();
@@ -237,6 +337,7 @@ export function PointCloudViewer({
         renderer.dispose();
         geom.dispose();
         mat.dispose();
+        for (const d of disposables) d.dispose();
         if (renderer.domElement.parentElement === container) {
           container.removeChild(renderer.domElement);
         }

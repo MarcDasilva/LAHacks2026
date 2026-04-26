@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import CameraFrameViewer from "@/app/components/CameraFrameViewer";
 import { PointCloudViewer } from "@/app/components/ui/PointCloudViewer";
@@ -363,6 +363,102 @@ function ModelOutputSection({
   );
 }
 
+function LandscapeCameraFeed() {
+  const [src, setSrc] = useState<string | null>(null);
+  const [source, setSource] = useState<"local" | "cloudinary" | "user">("local");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const userObjectUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const localUrl = "/clouds/video.mp4";
+    (async () => {
+      try {
+        const head = await fetch(localUrl, { method: "HEAD", cache: "no-store" });
+        if (!cancelled && head.ok) {
+          setSrc(localUrl);
+          setSource("local");
+          return;
+        }
+      } catch {
+        /* fall through */
+      }
+      try {
+        const res = await fetch("/clouds/video.url.json", { cache: "no-store" });
+        if (!res.ok) throw new Error(`pointer ${res.status}`);
+        const payload = (await res.json()) as { url?: string };
+        if (!cancelled && payload?.url) {
+          setSrc(payload.url);
+          setSource("cloudinary");
+        }
+      } catch {
+        /* leave src null — placeholder shown */
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (userObjectUrlRef.current) URL.revokeObjectURL(userObjectUrlRef.current);
+    };
+  }, []);
+
+  const onPick = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (userObjectUrlRef.current) URL.revokeObjectURL(userObjectUrlRef.current);
+    const url = URL.createObjectURL(file);
+    userObjectUrlRef.current = url;
+    setSrc(url);
+    setSource("user");
+  };
+
+  const sourceLabel = source === "user" ? "uploaded" : source === "cloudinary" ? "cloudinary" : "local";
+
+  return (
+    <div className="relative aspect-video overflow-hidden border-b border-[var(--primary)]/70 bg-black">
+      {src ? (
+        <video
+          key={src}
+          src={src}
+          autoPlay
+          loop
+          muted
+          playsInline
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center bg-[linear-gradient(135deg,rgba(255,255,255,0.18),rgba(255,255,255,0.04))]">
+          <div className="rounded-[12px] border border-[var(--primary)]/60 bg-white/32 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--foreground)]">
+            Landscape camera feed
+          </div>
+        </div>
+      )}
+
+      <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-2">
+        <span className="rounded-[9px] border border-[var(--primary)]/60 bg-black/45 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white">
+          {sourceLabel}
+        </span>
+      </div>
+
+      <div className="absolute right-3 top-3 z-10">
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="rounded-[10px] border border-[var(--primary)]/70 bg-white/85 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] font-display text-[var(--foreground)] shadow-[0_1px_0_rgba(255,255,255,0.4)_inset] transition hover:bg-white"
+        >
+          Choose footage
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="video/*"
+          className="hidden"
+          onChange={onPick}
+        />
+      </div>
+    </div>
+  );
+}
+
 function SparseSplatPanel({
   localUrl,
   pointerUrl,
@@ -412,8 +508,8 @@ function SparseSplatPanel({
   }, [localUrl, pointerUrl]);
 
   return (
-    <div className="min-h-[min(76vh,760px)] min-w-0 overflow-hidden rounded-[16px] border border-[var(--foreground)]/28 bg-white/22 shadow-[0_1px_0_rgba(255,255,255,0.22)_inset,0_18px_48px_rgba(15,15,15,0.08)] transition-[width,transform,box-shadow] duration-300 ease-out lg:w-[min(34vw,520px)] lg:min-w-[min(34vw,520px)]">
-      <div className="flex items-center justify-between border-b border-[var(--border)]/70 px-3 py-2.5">
+    <div className="min-h-[min(76vh,760px)] min-w-0 overflow-hidden rounded-[16px] border border-[var(--primary)] bg-white/22 shadow-[0_1px_0_rgba(255,255,255,0.22)_inset,0_18px_48px_rgba(15,15,15,0.08)] transition-[width,transform,box-shadow] duration-300 ease-out lg:w-[min(34vw,520px)] lg:min-w-[min(34vw,520px)]">
+      <div className="flex items-center justify-between border-b border-[var(--primary)]/70 px-3 py-2.5">
         <div className="min-w-0">
           <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
             sparse_splat
@@ -426,16 +522,21 @@ function SparseSplatPanel({
       </div>
 
       <div className="bg-black/8 p-3 transition-[padding] duration-300">
-        <div className="relative aspect-video overflow-hidden rounded-[14px] border border-[var(--border)]/55 bg-black/12 shadow-[0_1px_0_rgba(255,255,255,0.16)_inset] transition-[height] duration-300">
+        <div className="relative aspect-video overflow-hidden rounded-[14px] border border-[var(--primary)]/55 bg-black/12 shadow-[0_1px_0_rgba(255,255,255,0.16)_inset] transition-[height] duration-300">
           {resolvedUrl ? (
-            <PointCloudViewer url={resolvedUrl} pointSizeFactor={0.006} />
+            <PointCloudViewer
+              url={resolvedUrl}
+              pointSizeFactor={0.006}
+              pathUrl="/clouds/sparse.path.json"
+              lockElevation
+            />
           ) : null}
         </div>
       </div>
 
-      <div className="border-t border-[var(--border)]/70 px-3 py-2.5">
+      <div className="border-t border-[var(--primary)]/70 px-3 py-2.5">
         <div className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
-          <span>colmap · sparse</span>
+          <span>colmap · sparse · path</span>
           <span className="text-[var(--muted-foreground)]/55">/</span>
           <span className="truncate">{source === "cloudinary" ? "served from cdn" : "served locally"}</span>
         </div>
@@ -524,15 +625,8 @@ function EmptyCameraPreview({ title, description }: { title: string; description
           </span>
         </div>
 
-        <div className="relative aspect-video overflow-hidden border-b border-[var(--border)]/70 bg-white/10">
-          <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.18),rgba(255,255,255,0.04))]" />
-          <div className="absolute inset-3 rounded-[14px] border border-dashed border-[var(--border)]/55 bg-white/10" />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="rounded-[12px] border border-[var(--border)]/60 bg-white/32 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--foreground)]">
-              Landscape camera feed
-            </div>
-          </div>
-        </div>
+        <LandscapeCameraFeed />
+
 
         <div className="flex items-center justify-between border-b border-[var(--border)]/70 px-3 py-2.5">
           <div className="flex items-center gap-2">
