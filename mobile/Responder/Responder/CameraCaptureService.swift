@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreMedia
 import Foundation
+import Speech
 import UIKit
 
 protocol CameraCaptureServiceDelegate: AnyObject {
@@ -85,6 +86,7 @@ final class CameraCaptureService: NSObject, ObservableObject {
     @Published private(set) var isSessionRunning = false
     @Published private(set) var authorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
     @Published private(set) var audioAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+    @Published private(set) var speechAuthorizationStatus = SFSpeechRecognizer.authorizationStatus()
     @Published private(set) var isAudioCaptureConfigured = false
     @Published private(set) var audioSetupErrorMessage: String?
 
@@ -99,9 +101,11 @@ final class CameraCaptureService: NSObject, ObservableObject {
     func requestPermissionIfNeeded() async -> Bool {
         let currentStatus = AVCaptureDevice.authorizationStatus(for: .video)
         let currentAudioStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        let currentSpeechStatus = SFSpeechRecognizer.authorizationStatus()
         await MainActor.run {
             authorizationStatus = currentStatus
             audioAuthorizationStatus = currentAudioStatus
+            speechAuthorizationStatus = currentSpeechStatus
         }
 
         let videoGranted: Bool
@@ -133,8 +137,24 @@ final class CameraCaptureService: NSObject, ObservableObject {
             break
         }
 
+        switch currentSpeechStatus {
+        case .authorized, .denied, .restricted:
+            break
+        case .notDetermined:
+            let speechStatus = await withCheckedContinuation { continuation in
+                SFSpeechRecognizer.requestAuthorization { status in
+                    continuation.resume(returning: status)
+                }
+            }
+            await MainActor.run {
+                speechAuthorizationStatus = speechStatus
+            }
+        @unknown default:
+            break
+        }
+
         // YOLO should still run even if mic access is denied.
-        print("[Responder][AudioCapture] requestPermission video=\(videoGranted) audioStatus=\(AVCaptureDevice.authorizationStatus(for: .audio).rawValue)")
+        print("[Responder][AudioCapture] requestPermission video=\(videoGranted) audioStatus=\(AVCaptureDevice.authorizationStatus(for: .audio).rawValue) speechStatus=\(SFSpeechRecognizer.authorizationStatus().rawValue)")
         return videoGranted
     }
 
