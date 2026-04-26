@@ -1,8 +1,235 @@
 import AVFoundation
 import SwiftUI
 
+struct CapturedLLMPrompt: Equatable {
+    let text: String
+    let startedAt: Date
+    let endedAt: Date
+}
+
+struct ImpulseVoiceCommandResult {
+    let shouldSuppressTranscript: Bool
+    let spokenReply: String?
+    let captureStatus: String?
+    let savedPrompt: CapturedLLMPrompt?
+}
+
+struct ImpulseVoiceCommandController {
+    static let idleStatus = "Say \"Hello Impulse\" to capture a local LLM prompt until STOP."
+
+    private var isCapturingPrompt = false
+    private var capturedPromptText = ""
+    private var promptStartedAt: Date?
+    private var recentCommandEndedAt: Date?
+
+    mutating func processTranscript(_ rawText: String, startedAt: Date, endedAt: Date) -> ImpulseVoiceCommandResult {
+        let cleanedText = Self.normalizedSpacing(rawText)
+        guard !cleanedText.isEmpty else {
+            return ImpulseVoiceCommandResult(
+                shouldSuppressTranscript: isCapturingPrompt,
+                spokenReply: nil,
+                captureStatus: isCapturingPrompt ? captureStatusText() : nil,
+                savedPrompt: nil
+            )
+        }
+
+        if let recentCommandEndedAt,
+           startedAt.timeIntervalSince(recentCommandEndedAt) <= 2.5,
+           Self.containsStopKeyword(cleanedText) {
+            self.recentCommandEndedAt = nil
+            return ImpulseVoiceCommandResult(
+                shouldSuppressTranscript: true,
+                spokenReply: nil,
+                captureStatus: Self.idleStatus,
+                savedPrompt: nil
+            )
+        }
+
+        if isCapturingPrompt {
+            return continueCapturing(with: cleanedText, startedAt: startedAt, endedAt: endedAt)
+        }
+
+        guard let wakeRange = Self.wakePhraseRange(in: cleanedText) else {
+            return ImpulseVoiceCommandResult(
+                shouldSuppressTranscript: false,
+                spokenReply: nil,
+                captureStatus: nil,
+                savedPrompt: nil
+            )
+        }
+
+        isCapturingPrompt = true
+        promptStartedAt = startedAt
+        capturedPromptText = ""
+
+        let remainder = Self.normalizedSpacing(String(cleanedText[wakeRange.upperBound...]))
+        if remainder.isEmpty {
+            return ImpulseVoiceCommandResult(
+                shouldSuppressTranscript: true,
+                spokenReply: "Yes?",
+                captureStatus: captureStatusText(),
+                savedPrompt: nil
+            )
+        }
+
+        let captureResult = continueCapturing(with: remainder, startedAt: startedAt, endedAt: endedAt)
+        return ImpulseVoiceCommandResult(
+            shouldSuppressTranscript: true,
+            spokenReply: "Yes?",
+            captureStatus: captureResult.captureStatus,
+            savedPrompt: captureResult.savedPrompt
+        )
+    }
+
+    private mutating func continueCapturing(with rawSegment: String, startedAt: Date, endedAt: Date) -> ImpulseVoiceCommandResult {
+        let segment = Self.removingLeadingWakePhrase(from: rawSegment)
+
+        if let stopRange = Self.stopKeywordRange(in: segment) {
+            let promptPrefix = Self.normalizedSpacing(String(segment[..<stopRange.lowerBound]))
+            appendCapturedText(promptPrefix)
+            let finalizedPrompt = finalizePrompt(endedAt: endedAt)
+            return ImpulseVoiceCommandResult(
+                shouldSuppressTranscript: true,
+                spokenReply: nil,
+                captureStatus: finalizedPrompt.text.isEmpty ? "Stopped listening. Using default response." : "Saved voice prompt locally.",
+                savedPrompt: finalizedPrompt
+            )
+        }
+
+        appendCapturedText(segment)
+        return ImpulseVoiceCommandResult(
+            shouldSuppressTranscript: true,
+            spokenReply: nil,
+            captureStatus: captureStatusText(),
+            savedPrompt: nil
+        )
+    }
+
+    private mutating func appendCapturedText(_ segment: String) {
+        let cleanedSegment = Self.normalizedSpacing(segment)
+        guard !cleanedSegment.isEmpty else { return }
+        capturedPromptText = Self.mergeTranscript(existing: capturedPromptText, next: cleanedSegment)
+    }
+
+    private mutating func finalizePrompt(endedAt: Date) -> CapturedLLMPrompt {
+        defer {
+            isCapturingPrompt = false
+            capturedPromptText = ""
+            promptStartedAt = nil
+            recentCommandEndedAt = endedAt
+        }
+
+        let cleanedPrompt = Self.normalizedSpacing(capturedPromptText)
+        return CapturedLLMPrompt(
+            text: cleanedPrompt,
+            startedAt: promptStartedAt ?? endedAt,
+            endedAt: endedAt
+        )
+    }
+
+    private func captureStatusText() -> String {
+        let preview = Self.preview(capturedPromptText)
+        if preview.isEmpty {
+            return "Listening for prompt until STOP."
+        }
+        return "Capturing prompt: \(preview)"
+    }
+
+    private static func mergeTranscript(existing: String, next: String) -> String {
+        guard !next.isEmpty else { return existing }
+        guard !existing.isEmpty else { return next }
+        if existing.caseInsensitiveCompare(next) == .orderedSame {
+            return existing
+        }
+        if existing.localizedCaseInsensitiveContains(next) {
+            return existing
+        }
+
+        let existingWords = words(in: existing)
+        let nextWords = words(in: next)
+        let overlapCount = overlapWordCount(existingWords: existingWords, nextWords: nextWords)
+        if overlapCount > 0 {
+            let remainingWords = nextWords.dropFirst(overlapCount)
+            if remainingWords.isEmpty {
+                return existing
+            }
+            return "\(existing) \(remainingWords.joined(separator: " "))"
+        }
+
+        return "\(existing) \(next)"
+    }
+
+    private static func overlapWordCount(existingWords: [String], nextWords: [String]) -> Int {
+        guard !existingWords.isEmpty, !nextWords.isEmpty else { return 0 }
+        let maxOverlap = min(existingWords.count, nextWords.count)
+        for count in stride(from: maxOverlap, through: 1, by: -1) {
+            let existingSlice = existingWords.suffix(count)
+            let nextSlice = nextWords.prefix(count)
+            if zip(existingSlice, nextSlice).allSatisfy({ lhs, rhs in
+                lhs.caseInsensitiveCompare(rhs) == .orderedSame
+            }) {
+                return count
+            }
+        }
+        return 0
+    }
+
+    private static func words(in text: String) -> [String] {
+        text
+            .split(whereSeparator: \.isWhitespace)
+            .map { token in
+                token.trimmingCharacters(in: .punctuationCharacters)
+            }
+            .filter { !$0.isEmpty }
+    }
+
+    private static func preview(_ text: String, limit: Int = 72) -> String {
+        let cleaned = normalizedSpacing(text)
+        guard !cleaned.isEmpty else { return "" }
+        if cleaned.count <= limit {
+            return cleaned
+        }
+        let index = cleaned.index(cleaned.startIndex, offsetBy: limit)
+        return "\(cleaned[..<index])..."
+    }
+
+    private static func normalizedSpacing(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func containsStopKeyword(_ text: String) -> Bool {
+        stopKeywordRange(in: text) != nil
+    }
+
+    private static func wakePhraseRange(in text: String) -> Range<String.Index>? {
+        text.range(
+            of: "\\bhello\\s+impulse\\b[[:punct:]]*",
+            options: [.caseInsensitive, .regularExpression]
+        )
+    }
+
+    private static func stopKeywordRange(in text: String) -> Range<String.Index>? {
+        text.range(of: "\\bstop(?:ped)?\\b", options: [.caseInsensitive, .regularExpression])
+    }
+
+    private static func removingLeadingWakePhrase(from text: String) -> String {
+        guard let wakeRange = text.range(
+            of: "^\\bhello\\s+impulse\\b[[:punct:]]*\\s*",
+            options: [.caseInsensitive, .regularExpression]
+        ) else {
+            return normalizedSpacing(text)
+        }
+        return normalizedSpacing(String(text[wakeRange.upperBound...]))
+    }
+}
+
 @MainActor
 final class CameraViewModel: NSObject, ObservableObject {
+    private static let sttPlaceholder = "Waiting for transcript..."
+    private static let sttOnHoldMessage = "STT is currently on hold."
+
     @Published private(set) var capturedFrameCount = 0
     @Published private(set) var capturedAudioBufferCount = 0
     @Published private(set) var lastFrameTimestamp: Date?
@@ -25,10 +252,29 @@ final class CameraViewModel: NSObject, ObservableObject {
     @Published private(set) var yamnetModelName = ""
     @Published private(set) var frameStreamStatus = "idle"
     @Published private(set) var streamedFrameCount = 0
+    @Published private(set) var memoryIndexStatus = "Starting local memory index..."
+    @Published private(set) var memoryDatabasePath = ""
+    @Published private(set) var indexedMemoryCount = 0
+    @Published private(set) var latestMemorySummary = "No memories indexed yet."
+    @Published private(set) var savedPromptCount = 0
+    @Published private(set) var latestSavedPrompt = "No voice prompts saved yet."
+    @Published private(set) var voicePromptStatus = ImpulseVoiceCommandController.idleStatus
+    @Published private(set) var memorySearchResults: [MemorySearchResult] = []
+    @Published private(set) var consolidatedMemoryResults: [ConsolidatedMemoryResult] = []
+    @Published private(set) var memoryAnswerSummary: String?
+    @Published private(set) var memoryError: String?
+    @Published var memoryQuery = ""
+    @Published var speakMemoryAnswers = true
     private var lastStatusUpdateAudioBufferCount = 0
+    private var transcriptLines: [String] = []
+    private var impulseVoiceCommandController = ImpulseVoiceCommandController()
+    private var hasRunLaunchMemoryLLMTest = false
 
     let captureService = CameraCaptureService()
     let frameStreamSettings = FrameStreamSettings.fromEnvironment()
+    private let inferenceSettings: InferenceModelSettings
+    private let memoryIndex = try? OnDeviceMemoryIndex(cameraName: "Rear Camera")
+    private let memoryAnswerService: ZeticMemoryAnswerService
     private var yoloPipeline: ChunkedTranscriptPipeline!
     private var audioPipeline: ChunkedAudioTranscriptionPipeline!
     private var yamnetPipeline: ChunkedAudioTranscriptionPipeline!
@@ -36,6 +282,9 @@ final class CameraViewModel: NSObject, ObservableObject {
     nonisolated(unsafe) private var frameStreamClient: FrameStreamClient!
 
     override init() {
+        let inferenceSettings = InferenceModelSettings.fromEnvironment()
+        self.inferenceSettings = inferenceSettings
+        self.memoryAnswerService = ZeticMemoryAnswerService(settings: inferenceSettings)
         let inference = InferenceEngineFactory.makeEngines()
         super.init()
         print("[Responder][STT] ViewModel initialized. sttOnHold=\(inference.sttOnHold)")
@@ -45,7 +294,7 @@ final class CameraViewModel: NSObject, ObservableObject {
         self.sttOnHold = inference.sttOnHold
         self.yamnetOnHold = inference.yamnetOnHold
         self.yoloOnHold = inference.yoloOnHold
-        self.latestTranscript = inference.sttOnHold ? "STT is currently on hold." : "Waiting for transcript..."
+        self.latestTranscript = inference.sttOnHold ? Self.sttOnHoldMessage : Self.sttPlaceholder
         self.latestYamnetOutput = inference.yamnetOnHold ? "YAMNet is currently on hold." : "Waiting for YAMNet output..."
         self.latestDetections = inference.yoloOnHold ? "YOLO is currently on hold." : "Waiting for detections..."
         self.yoloPipeline = ChunkedTranscriptPipeline(
@@ -60,6 +309,7 @@ final class CameraViewModel: NSObject, ObservableObject {
                     self?.latestDetections = text.isEmpty ? "[no detections]" : text
                     self?.yoloError = nil
                     self?.lastInferenceError = self?.sttError
+                    self?.ingestVisionMemory(payload)
                     self?.frameStreamClient.sendModelOutput(kind: "yolo", payload: payload)
                 }
             },
@@ -77,17 +327,54 @@ final class CameraViewModel: NSObject, ObservableObject {
             audioSamplesPerChunk: inference.audioSamplesPerChunk,
             sessionID: inference.sessionID,
             statusPrefix: "STT",
+            hopSamples: 24_000,
+            minimumWindowSamples: 48_000,
             onTranscript: { [weak self] payload in
                 Task { @MainActor in
                     let text = payload.output.text.trimmingCharacters(in: .whitespacesAndNewlines)
                     print("[Responder][STT] Transcript chunk=\(payload.chunk.chunkID) text=\(text)")
-                    self?.latestTranscript = text.isEmpty ? "[empty transcript]" : text
-                    self?.sttError = nil
-                    self?.lastInferenceError = self?.yoloError
-                    if self?.speakTranscript == true,
+                    guard let self else { return }
+                    let voiceCommand = self.impulseVoiceCommandController.processTranscript(
+                        text,
+                        startedAt: payload.chunk.startedAt,
+                        endedAt: payload.chunk.endedAt
+                    )
+                    if let captureStatus = voiceCommand.captureStatus {
+                        self.voicePromptStatus = captureStatus
+                    }
+                    if let spokenReply = voiceCommand.spokenReply {
+                        self.speechPlayer.speak(spokenReply)
+                    }
+                    if let savedPrompt = voiceCommand.savedPrompt {
+                        self.handleImpulseVoiceQuery(savedPrompt)
+                    }
+                    if voiceCommand.shouldSuppressTranscript {
+                        self.sttError = nil
+                        self.lastInferenceError = self.yoloError ?? self.yamnetError
+                        return
+                    }
+                    let displayText = self.appendTranscriptLine(text)
+                    self.latestTranscript = displayText
+                    self.sttError = nil
+                    self.lastInferenceError = self.yoloError ?? self.yamnetError
+                    let frontendPayload = TranscriptChunk(
+                        sessionID: payload.sessionID,
+                        emittedAt: payload.emittedAt,
+                        chunk: payload.chunk,
+                        model: payload.model,
+                        output: TranscriptChunk.TranscriptOutput(
+                            text: displayText,
+                            confidence: payload.output.confidence,
+                            tensorCount: payload.output.tensorCount
+                        )
+                    )
+                    self.ingestTranscriptMemory(payload)
+                    self.frameStreamClient.sendModelOutput(kind: "stt", payload: frontendPayload)
+                    if self.speakTranscript == true,
                        text != "[stt_unavailable] Decoder returned no tokens.",
-                       text != "[stt_unavailable] Encoder returned no embeddings." {
-                        self?.speechPlayer.speak(text)
+                       text != "[stt_unavailable] Encoder returned no embeddings.",
+                       text != "[stt_unavailable] Decoder produced no transcription." {
+                        self.speechPlayer.speak(text)
                     }
                 }
             },
@@ -120,6 +407,7 @@ final class CameraViewModel: NSObject, ObservableObject {
                     self?.latestYamnetOutput = text.isEmpty ? "[empty yamnet output]" : text
                     self?.yamnetError = nil
                     self?.lastInferenceError = self?.sttError ?? self?.yoloError
+                    self?.ingestAudioMemory(payload)
                     self?.frameStreamClient.sendModelOutput(kind: "yamnet", payload: payload)
                 }
             },
@@ -150,10 +438,12 @@ final class CameraViewModel: NSObject, ObservableObject {
             }
         )
         captureService.delegate = self
+        bootstrapMemoryIndex()
     }
 
     func startCamera() {
         print("[Responder] startCamera called")
+        runLaunchMemoryLLMTestIfNeeded()
         Task {
             let granted = await captureService.requestPermissionIfNeeded()
             print("[Responder] Camera permission granted=\(granted) audioAuth=\(captureService.audioAuthorizationStatus.rawValue)")
@@ -163,7 +453,7 @@ final class CameraViewModel: NSObject, ObservableObject {
             }
             permissionDenied = false
             if captureService.audioAuthorizationStatus != .authorized {
-                latestTranscript = "[stt_unavailable] Microphone permission not granted."
+                resetTranscriptDisplay("[stt_unavailable] Microphone permission not granted.")
                 sttPipelineStatus = "No microphone permission"
                 latestYamnetOutput = "[yamnet_unavailable] Microphone permission not granted."
                 yamnetPipelineStatus = "No microphone permission"
@@ -190,11 +480,11 @@ final class CameraViewModel: NSObject, ObservableObject {
         sttOnHold = !enabled
         audioPipeline.setPaused(sttOnHold)
         if sttOnHold {
-            latestTranscript = "STT is currently on hold."
+            resetTranscriptDisplay(Self.sttOnHoldMessage)
             sttPipelineStatus = "Paused"
             print("[Responder][STT] Paused")
-        } else if latestTranscript == "STT is currently on hold." {
-            latestTranscript = "Waiting for transcript..."
+        } else if latestTranscript == Self.sttOnHoldMessage {
+            resetTranscriptDisplay(Self.sttPlaceholder)
             sttPipelineStatus = "Listening..."
             print("[Responder][STT] Resumed and listening")
             startSTTWatchdog()
@@ -224,6 +514,27 @@ final class CameraViewModel: NSObject, ObservableObject {
         }
     }
 
+    private func runLaunchMemoryLLMTestIfNeeded() {
+        guard !hasRunLaunchMemoryLLMTest else { return }
+        hasRunLaunchMemoryLLMTest = true
+        print("[Responder][MemoryLLM][TEST] Starting launch test")
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let result = await self.memoryAnswerService.runLaunchTest()
+            print("[Responder][MemoryLLM][TEST] status=\(result.status) response=\(result.response)")
+            self.memoryAnswerSummary = "Launch test: \(result.response)"
+            self.memoryIndexStatus = result.status
+            if result.success {
+                if self.memoryError?.hasPrefix("Memory LLM launch test") == true {
+                    self.memoryError = nil
+                }
+            } else {
+                self.memoryError = result.status
+            }
+        }
+    }
+
     private func startSTTWatchdog() {
         print("[Responder][STT] Watchdog armed")
         Task { @MainActor [weak self] in
@@ -231,31 +542,385 @@ final class CameraViewModel: NSObject, ObservableObject {
             try? await Task.sleep(nanoseconds: 4_000_000_000)
             guard !self.sttOnHold else { return }
             if self.captureService.audioAuthorizationStatus != .authorized {
-                self.latestTranscript = "[stt_unavailable] Microphone permission not granted."
+                self.resetTranscriptDisplay("[stt_unavailable] Microphone permission not granted.")
                 self.sttPipelineStatus = "No microphone permission"
                 print("[Responder][STT][WATCHDOG] No mic permission")
                 return
             }
             if let setupError = self.captureService.audioSetupErrorMessage {
-                self.latestTranscript = "[stt_unavailable] \(setupError)"
+                self.resetTranscriptDisplay("[stt_unavailable] \(setupError)")
                 self.sttPipelineStatus = "Audio setup failed"
                 print("[Responder][STT][WATCHDOG] Audio setup error: \(setupError)")
                 return
             }
             if !self.captureService.isAudioCaptureConfigured {
-                self.latestTranscript = "[stt_unavailable] Audio capture pipeline is not configured."
+                self.resetTranscriptDisplay("[stt_unavailable] Audio capture pipeline is not configured.")
                 self.sttPipelineStatus = "Audio capture not configured"
                 print("[Responder][STT][WATCHDOG] Audio capture not configured")
                 return
             }
             if self.capturedAudioBufferCount == 0 {
-                self.latestTranscript = "[stt_unavailable] No microphone audio buffers received after start."
+                self.resetTranscriptDisplay("[stt_unavailable] No microphone audio buffers received after start.")
                 self.sttPipelineStatus = "No audio buffers"
                 print("[Responder][STT][WATCHDOG] No audio buffers received")
             } else {
                 print("[Responder][STT][WATCHDOG] Audio buffers seen count=\(self.capturedAudioBufferCount)")
             }
         }
+    }
+
+    private func appendTranscriptLine(_ text: String) -> String {
+        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return transcriptLines.isEmpty ? "[empty transcript]" : transcriptLines.joined(separator: "\n")
+        }
+
+        if normalized.hasPrefix("[stt_unavailable]") {
+            resetTranscriptDisplay(normalized)
+            return latestTranscript
+        }
+
+        if transcriptLines.last == normalized {
+            return transcriptLines.joined(separator: "\n")
+        }
+
+        if transcriptLines.count >= 3 {
+            transcriptLines.removeAll(keepingCapacity: true)
+        }
+        transcriptLines.append(normalized)
+        return transcriptLines.joined(separator: "\n")
+    }
+
+    private func resetTranscriptDisplay(_ text: String) {
+        transcriptLines.removeAll(keepingCapacity: true)
+        latestTranscript = text
+    }
+
+    func runMemorySearch() {
+        let query = memoryQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            memorySearchResults = []
+            consolidatedMemoryResults = []
+            memoryAnswerSummary = nil
+            memoryError = nil
+            return
+        }
+
+        guard let memoryIndex else {
+            memoryError = "Local memory index failed to initialize."
+            return
+        }
+
+        memoryIndexStatus = "Searching on-device memories..."
+        memoryError = nil
+
+        Task { [weak self] in
+            guard let self else { return }
+            let defaultSpokenFallback = self.inferenceSettings.memoryDefaultFallbackMessage
+            do {
+                let results = try await memoryIndex.search(query)
+                let fallbackAnswer = MemorySearchSummarizer.makeAnswer(
+                    for: query,
+                    results: results,
+                    defaultFallbackMessage: self.inferenceSettings.memoryDefaultFallbackMessage
+                )
+                let snapshot = try await memoryIndex.prepare()
+                await MainActor.run {
+                    self.memorySearchResults = results
+                    self.consolidatedMemoryResults = fallbackAnswer.consolidatedResults
+                    self.memoryAnswerSummary = fallbackAnswer.summaryText
+                    self.applyMemorySnapshot(snapshot, fallbackStatus: results.isEmpty ? "No matching memories yet" : "Summarizing with Zetic LLM...")
+                }
+
+                let answer = await self.memoryAnswerService.summarize(query: query, fallback: fallbackAnswer)
+
+                await MainActor.run {
+                    self.consolidatedMemoryResults = answer.consolidatedResults
+                    self.memoryAnswerSummary = answer.summaryText
+                    self.applyMemorySnapshot(snapshot, fallbackStatus: results.isEmpty ? "No matching memories yet" : "Semantic search complete")
+                    if self.speakMemoryAnswers {
+                        let spokenText = answer.spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            ? defaultSpokenFallback
+                            : answer.spokenText
+                        self.speechPlayer.speak(spokenText)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.memoryError = Self.describeMemoryError(error)
+                    self.memoryIndexStatus = "Search failed"
+                }
+            }
+        }
+    }
+
+    func clearMemoryDatabase() {
+        guard let memoryIndex else {
+            memoryError = "Local memory index failed to initialize."
+            return
+        }
+
+        memoryIndexStatus = "Clearing local memories..."
+        memoryError = nil
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let snapshot = try await memoryIndex.clearAllMemories()
+                await MainActor.run {
+                    self.memoryQuery = ""
+                    self.memorySearchResults = []
+                    self.consolidatedMemoryResults = []
+                    self.memoryAnswerSummary = nil
+                    self.applyMemorySnapshot(snapshot, fallbackStatus: "Local memory database cleared")
+                }
+            } catch {
+                await MainActor.run {
+                    self.memoryError = Self.describeMemoryError(error)
+                    self.memoryIndexStatus = "Clear failed"
+                }
+            }
+        }
+    }
+
+    private func bootstrapMemoryIndex() {
+        guard let memoryIndex else {
+            memoryIndexStatus = "Local memory index unavailable"
+            memoryError = "Unable to start the on-device SQLite vector database."
+            return
+        }
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let snapshot = try await memoryIndex.prepare()
+                await MainActor.run {
+                    self.applyMemorySnapshot(snapshot, fallbackStatus: "Ready for semantic search")
+                }
+            } catch {
+                await MainActor.run {
+                    self.memoryIndexStatus = "Memory bootstrap failed"
+                    self.memoryError = Self.describeMemoryError(error)
+                }
+            }
+        }
+    }
+
+    private func ingestVisionMemory(_ payload: TranscriptChunk) {
+        guard let memoryIndex else { return }
+        let boxes = DetectionOverlayStore.shared.currentBoxes()
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let snapshot = try await memoryIndex.ingestVision(payload, boxes: boxes)
+                await MainActor.run {
+                    self.applyMemorySnapshot(snapshot)
+                }
+            } catch {
+                await MainActor.run {
+                    self.memoryError = Self.describeMemoryError(error)
+                    self.memoryIndexStatus = "Vision memory ingest failed"
+                }
+            }
+        }
+    }
+
+    private func ingestTranscriptMemory(_ payload: TranscriptChunk) {
+        guard let memoryIndex else { return }
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let snapshot = try await memoryIndex.ingestTranscript(payload)
+                await MainActor.run {
+                    self.applyMemorySnapshot(snapshot)
+                }
+            } catch {
+                await MainActor.run {
+                    self.memoryError = Self.describeMemoryError(error)
+                    self.memoryIndexStatus = "Transcript memory ingest failed"
+                }
+            }
+        }
+    }
+
+    private func ingestAudioMemory(_ payload: TranscriptChunk) {
+        guard let memoryIndex else { return }
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let snapshot = try await memoryIndex.ingestAudioClassification(payload)
+                await MainActor.run {
+                    self.applyMemorySnapshot(snapshot)
+                }
+            } catch {
+                await MainActor.run {
+                    self.memoryError = Self.describeMemoryError(error)
+                    self.memoryIndexStatus = "Audio memory ingest failed"
+                }
+            }
+        }
+    }
+
+    private func applyMemorySnapshot(_ snapshot: MemoryIndexSnapshot, fallbackStatus: String? = nil) {
+        applyMemorySnapshot(snapshot, fallbackStatus: fallbackStatus, preserveLatestMemorySummary: false)
+    }
+
+    private func applyMemorySnapshot(
+        _ snapshot: MemoryIndexSnapshot,
+        fallbackStatus: String? = nil,
+        preserveLatestMemorySummary: Bool
+    ) {
+        indexedMemoryCount = snapshot.indexedCount
+        savedPromptCount = snapshot.promptCount
+        latestSavedPrompt = snapshot.latestPromptPreview
+        memoryDatabasePath = snapshot.databasePath
+        if !preserveLatestMemorySummary {
+            latestMemorySummary = snapshot.latestSummary
+        }
+        memoryIndexStatus = fallbackStatus ?? "Indexed \(snapshot.indexedCount) memories locally with sqlite-vec \(snapshot.vectorVersion)"
+        memoryError = nil
+    }
+
+    private func handleImpulseVoiceQuery(_ prompt: CapturedLLMPrompt) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.runImpulseVoiceQuery(prompt)
+        }
+    }
+
+    private func runImpulseVoiceQuery(_ prompt: CapturedLLMPrompt) async {
+        let shouldResumeSTT = !sttOnHold
+        let cleanedPrompt = prompt.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let defaultSpokenFallback = inferenceSettings.memoryDefaultFallbackMessage
+        if shouldResumeSTT {
+            setSTTEnabled(false)
+        }
+
+        memoryQuery = cleanedPrompt
+        voicePromptStatus = cleanedPrompt.isEmpty
+            ? "Speaking default response."
+            : "Searching memories for: \(Self.previewText(cleanedPrompt))"
+        memoryIndexStatus = cleanedPrompt.isEmpty
+            ? "No prompt captured. Using default response."
+            : "Running semantic voice query..."
+        memoryError = nil
+
+        defer {
+            voicePromptStatus = ImpulseVoiceCommandController.idleStatus
+            if shouldResumeSTT {
+                setSTTEnabled(true)
+            }
+        }
+
+        if cleanedPrompt.isEmpty {
+            let fallbackAnswer = MemorySearchAnswer(
+                summaryText: defaultSpokenFallback,
+                spokenText: defaultSpokenFallback,
+                consolidatedResults: []
+            )
+            memorySearchResults = []
+            consolidatedMemoryResults = []
+            memoryAnswerSummary = fallbackAnswer.summaryText
+            await speechPlayer.speakAndWait(
+                fallbackAnswer.spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? defaultSpokenFallback
+                    : fallbackAnswer.spokenText
+            )
+            return
+        }
+
+        guard let memoryIndex else {
+            memoryError = "Local memory index failed to initialize."
+            let fallbackAnswer = await memoryAnswerService.summarize(
+                query: cleanedPrompt,
+                fallback: MemorySearchSummarizer.makeAnswer(
+                    for: cleanedPrompt,
+                    results: [],
+                    defaultFallbackMessage: inferenceSettings.memoryDefaultFallbackMessage
+                )
+            )
+            voicePromptStatus = "Speaking default response."
+            memoryAnswerSummary = fallbackAnswer.summaryText
+            await speechPlayer.speakAndWait(
+                fallbackAnswer.spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? defaultSpokenFallback
+                    : fallbackAnswer.spokenText
+            )
+            return
+        }
+
+        do {
+            let savedPromptSnapshot = try await memoryIndex.saveLLMPrompt(
+                cleanedPrompt,
+                startedAt: prompt.startedAt,
+                endedAt: prompt.endedAt
+            )
+            let rawResults = try await memoryIndex.search(cleanedPrompt)
+            let relevantResults = MemorySearchSummarizer.relevantResults(
+                rawResults,
+                maxDistance: inferenceSettings.memoryRelevantDistanceThreshold
+            )
+            let fallbackAnswer = MemorySearchSummarizer.makeAnswer(
+                for: cleanedPrompt,
+                results: relevantResults,
+                defaultFallbackMessage: inferenceSettings.memoryDefaultFallbackMessage
+            )
+            let answer = await memoryAnswerService.summarize(query: cleanedPrompt, fallback: fallbackAnswer)
+
+            memorySearchResults = relevantResults
+            consolidatedMemoryResults = answer.consolidatedResults
+            memoryAnswerSummary = answer.summaryText
+            applyMemorySnapshot(
+                savedPromptSnapshot,
+                fallbackStatus: relevantResults.isEmpty ? "No relevant memory match. Used default response." : "Semantic voice query complete",
+                preserveLatestMemorySummary: true
+            )
+            voicePromptStatus = relevantResults.isEmpty ? "Speaking default response." : "Speaking memory answer."
+            await speechPlayer.speakAndWait(
+                answer.spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? defaultSpokenFallback
+                    : answer.spokenText
+            )
+        } catch {
+            memoryError = Self.describeMemoryError(error)
+            memoryIndexStatus = "Voice query failed"
+
+            let fallbackAnswer = await memoryAnswerService.summarize(
+                query: cleanedPrompt,
+                fallback: MemorySearchSummarizer.makeAnswer(
+                    for: cleanedPrompt,
+                    results: [],
+                    defaultFallbackMessage: inferenceSettings.memoryDefaultFallbackMessage
+                )
+            )
+            memorySearchResults = []
+            consolidatedMemoryResults = []
+            memoryAnswerSummary = fallbackAnswer.summaryText
+            voicePromptStatus = "Speaking default response."
+            await speechPlayer.speakAndWait(
+                fallbackAnswer.spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? defaultSpokenFallback
+                    : fallbackAnswer.spokenText
+            )
+        }
+    }
+
+    private static func describeMemoryError(_ error: Error) -> String {
+        let described = String(describing: error)
+        if described.contains("SQLiteVec") || described.contains("Error ") {
+            return described
+        }
+        return (error as NSError).localizedDescription
+    }
+
+    private static func previewText(_ text: String, limit: Int = 48) -> String {
+        let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard cleaned.count > limit else { return cleaned }
+        let index = cleaned.index(cleaned.startIndex, offsetBy: limit)
+        return "\(cleaned[..<index])..."
     }
 }
 
@@ -432,14 +1097,15 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity)
 
                 Toggle("Speak transcript (TTS)", isOn: $viewModel.speakTranscript)
+                Toggle("Speak memory answers (TTS)", isOn: $viewModel.speakMemoryAnswers)
 
                 VStack(spacing: 12) {
                     pipelineCard(
-                        title: "STT Pipeline (Qwen)",
+                        title: "STT Pipeline",
                         subtitle: "Model: \(viewModel.sttModelName)",
                         status: sttStatusLabel,
                         statusColor: sttStatusColor,
-                        bodyText: "Latest STT Output:\n\(viewModel.latestTranscript)\n\nStatus: \(viewModel.sttPipelineStatus)",
+                        bodyText: "Voice prompt: \(viewModel.voicePromptStatus)\n\nLatest STT Output:\n\(viewModel.latestTranscript)\n\nStatus: \(viewModel.sttPipelineStatus)",
                         actionTitle: viewModel.sttOnHold ? "Resume STT Model" : "Pause STT Model",
                         actionTint: viewModel.sttOnHold ? .green : .orange,
                         action: { viewModel.setSTTEnabled(viewModel.sttOnHold) }
@@ -469,6 +1135,117 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("On-Device Memory Search")
+                                .font(.headline)
+                            Text("SQLite + vector search on the phone. Ask things like “where did I see a person?”")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Text("\(viewModel.indexedMemoryCount) memories / \(viewModel.savedPromptCount) prompts")
+                            .font(.caption.bold())
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(Color.black.opacity(0.08), in: Capsule())
+                    }
+
+                    TextField("Where did I see a person near the door?", text: $viewModel.memoryQuery)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit {
+                            viewModel.runMemorySearch()
+                        }
+
+                    Button("Search Memories") {
+                        viewModel.runMemorySearch()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.indigo)
+
+                    Button("Clear DB") {
+                        viewModel.clearMemoryDatabase()
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.red)
+
+                    Text(viewModel.memoryIndexStatus)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    Text("Latest memory summary: \(viewModel.latestMemorySummary)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    Text("Latest saved prompt: \(viewModel.latestSavedPrompt)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    if !viewModel.memoryDatabasePath.isEmpty {
+                        Text("Database: \(viewModel.memoryDatabasePath)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if let memoryAnswerSummary = viewModel.memoryAnswerSummary, !memoryAnswerSummary.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Summary")
+                                .font(.subheadline.weight(.semibold))
+                            Text(memoryAnswerSummary)
+                                .font(.footnote)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .background(Color.indigo.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+
+                    if !viewModel.consolidatedMemoryResults.isEmpty {
+                        ForEach(viewModel.consolidatedMemoryResults) { result in
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Text(result.timeRangeLabel)
+                                        .font(.subheadline.weight(.semibold))
+                                    Spacer()
+                                    Text(result.bestWhereAnswer)
+                                        .font(.caption.weight(.semibold))
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color.blue.opacity(0.12), in: Capsule())
+                                }
+
+                                Text(result.occurrenceCount == 1 ? "1 memory" : "\(result.occurrenceCount) merged memories")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+
+                                if !result.detectionSummary.isEmpty {
+                                    Text("Seen: \(result.detectionSummary)")
+                                        .font(.footnote)
+                                }
+
+                                if !result.transcriptSummary.isEmpty {
+                                    Text("Heard: \(result.transcriptSummary)")
+                                        .font(.footnote)
+                                }
+
+                                if !result.audioSummary.isEmpty {
+                                    Text("Ambient: \(result.audioSummary)")
+                                        .font(.footnote)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .background(Color.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                    } else if !viewModel.memoryQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("No matching memories yet.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(12)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
                 if viewModel.permissionDenied {
                     Text("Camera or microphone permission denied. Enable access in Settings to continue.")
                         .foregroundStyle(.red)
@@ -477,6 +1254,13 @@ struct ContentView: View {
 
                 if let lastInferenceError = viewModel.lastInferenceError {
                     Text(lastInferenceError)
+                        .foregroundStyle(.red)
+                        .font(.footnote)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                if let memoryError = viewModel.memoryError {
+                    Text(memoryError)
                         .foregroundStyle(.red)
                         .font(.footnote)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -583,14 +1367,88 @@ struct ContentView: View {
     ContentView()
 }
 
-final class SpeechPlaybackService {
+@MainActor
+final class SpeechPlaybackService: NSObject, @preconcurrency AVSpeechSynthesizerDelegate {
     private let synthesizer = AVSpeechSynthesizer()
+    private var currentUtterance: AVSpeechUtterance?
+    private var currentContinuation: CheckedContinuation<Void, Never>?
+
+    override init() {
+        super.init()
+        synthesizer.delegate = self
+    }
 
     func speak(_ text: String) {
-        let utterance = AVSpeechUtterance(string: text)
+        guard let cleaned = Self.preparedSpeechText(text, fallback: "Yes?") else {
+            print("[Responder][TTS] Skipping empty speech request.")
+            return
+        }
+        currentContinuation?.resume()
+        currentContinuation = nil
+        let utterance = AVSpeechUtterance(string: cleaned)
         utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
         utterance.rate = 0.48
+        currentUtterance = utterance
         synthesizer.stopSpeaking(at: .immediate)
         synthesizer.speak(utterance)
+    }
+
+    func speakAndWait(_ text: String) async {
+        guard let cleaned = Self.preparedSpeechText(text, fallback: "default") else {
+            print("[Responder][TTS] Skipping empty speech request.")
+            return
+        }
+
+        currentContinuation?.resume()
+        currentContinuation = nil
+
+        let utterance = AVSpeechUtterance(string: cleaned)
+        utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
+        utterance.rate = 0.48
+        currentUtterance = utterance
+        synthesizer.stopSpeaking(at: .immediate)
+
+        await withCheckedContinuation { continuation in
+            currentContinuation = continuation
+            synthesizer.speak(utterance)
+        }
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        resolveContinuationIfCurrent(utterance)
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        resolveContinuationIfCurrent(utterance)
+    }
+
+    private func resolveContinuationIfCurrent(_ utterance: AVSpeechUtterance) {
+        guard currentUtterance === utterance else { return }
+        currentUtterance = nil
+        currentContinuation?.resume()
+        currentContinuation = nil
+    }
+
+    private static func preparedSpeechText(_ text: String, fallback: String? = nil) -> String? {
+        let cleaned = sanitizeSpeechText(text)
+        if !cleaned.isEmpty {
+            return cleaned
+        }
+
+        guard let fallback else { return nil }
+        let cleanedFallback = sanitizeSpeechText(fallback)
+        return cleanedFallback.isEmpty ? nil : cleanedFallback
+    }
+
+    private static func sanitizeSpeechText(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "(?is)<think>.*?</think>", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "(?is)<analysis>.*?</analysis>", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "(?is)<reasoning>.*?</reasoning>", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "<\\|[^>]+\\|>", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "[\\u0000-\\u001F]+", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"' ").union(.whitespacesAndNewlines))
     }
 }

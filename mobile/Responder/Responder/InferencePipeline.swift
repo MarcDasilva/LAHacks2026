@@ -36,8 +36,10 @@ struct InferenceModelSettings {
     let credentialCandidates: [String]
     let yoloModelName: String
     let yamnetModelName: String
-    let sttAudioEncoderModelName: String
-    let sttDecoderModelName: String
+    let qwenAudioEncoderModelName: String
+    let qwenDecoderModelName: String
+    let whisperEncoderModelName: String
+    let whisperDecoderModelName: String
     let modelVersion: Int?
     let modelMode: String
     let userPrompt: String
@@ -45,11 +47,20 @@ struct InferenceModelSettings {
     let maxResponseTokens: Int
     let maxFramesPerChunk: Int
     let audioSamplesPerChunk: Int
+    let sttTimeoutSeconds: Int
+    let memoryLLMEnabled: Bool
+    let memoryLLMModelName: String
+    let memoryLLMModelVersion: Int?
+    let memoryLLMMaxMemories: Int
+    let memoryLLMMaxAnswerWords: Int
+    let memoryDefaultFallbackMessage: String
+    let memoryRelevantDistanceThreshold: Double
     let sessionID: String
     let sttOnHold: Bool
     let yoloOnHold: Bool
     let yamnetOnHold: Bool
     let audioEngine: String
+    let speechLocale: String
 
     static func fromEnvironment(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> InferenceModelSettings {
         let envPersonalKey = environment["ZETIC_PERSONAL_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -65,9 +76,11 @@ struct InferenceModelSettings {
         let personalKey = credentialCandidates.first ?? ""
         let yoloModelName = environment["ZETIC_YOLO_MODEL_NAME"] ?? "vaibhav-zetic/YOLOv8m"
         let yamnetModelName = environment["ZETIC_YAMNET_MODEL_NAME"] ?? "google/Sound Classification(YAMNET)"
-        let sttAudioEncoderModelName = environment["ZETIC_AUDIO_ENCODER_MODEL_NAME"] ?? "zetic/qwen2.5_omni_audio_encoder_chunk_f16"
-        let sttDecoderModelName = environment["ZETIC_DECODER_MODEL_NAME"] ?? "zetic/QWEN_2.5_omni_3b_decoder"
-        let audioEngine = environment["RESPONDER_AUDIO_ENGINE"] ?? "YAMNET"
+        let qwenAudioEncoderModelName = environment["ZETIC_AUDIO_ENCODER_MODEL_NAME"] ?? "zetic/qwen2.5_omni_audio_encoder_chunk_f16"
+        let qwenDecoderModelName = environment["ZETIC_DECODER_MODEL_NAME"] ?? "zetic/QWEN_2.5_omni_3b_decoder"
+        let whisperEncoderModelName = environment["ZETIC_WHISPER_ENCODER_MODEL_NAME"] ?? "OpenAI/whisper-tiny-encoder"
+        let whisperDecoderModelName = environment["ZETIC_WHISPER_DECODER_MODEL_NAME"] ?? "OpenAI/whisper-tiny-decoder"
+        let audioEngine = environment["RESPONDER_AUDIO_ENGINE"] ?? "APPLE"
         let modelMode = environment["ZETIC_MODEL_MODE"] ?? "RUN_AUTO"
         let modelVersion = environment["ZETIC_MODEL_VERSION"].flatMap(Int.init) ?? 1
         let userPrompt = environment["RESPONDER_AUDIO_USER_PROMPT"] ?? "Transcribe this audio in English."
@@ -75,18 +88,35 @@ struct InferenceModelSettings {
         let maxResponseTokens = max(environment["RESPONDER_MAX_RESPONSE_TOKENS"].flatMap(Int.init) ?? 256, 32)
         let maxFramesPerChunk = max(environment["RESPONDER_CHUNK_FRAMES"].flatMap(Int.init) ?? 6, 1)
         let audioSamplesPerChunk = max(environment["RESPONDER_AUDIO_SAMPLES_PER_CHUNK"].flatMap(Int.init) ?? 8_000, 4_000)
+        let sttTimeoutSeconds = max(environment["RESPONDER_STT_TIMEOUT_SECONDS"].flatMap(Int.init) ?? 12, 1)
+        let memoryLLMEnabled = parseBool(environment["RESPONDER_MEMORY_LLM_ENABLED"], defaultValue: true)
+        let memoryLLMModelName = environment["ZETIC_MEMORY_LLM_MODEL_NAME"] ?? "Qwen/Qwen3-0.6B"
+        let memoryLLMModelVersion = environment["ZETIC_MEMORY_LLM_MODEL_VERSION"].flatMap(Int.init) ?? 1
+        let memoryLLMMaxMemories = max(environment["RESPONDER_MEMORY_LLM_MAX_MEMORIES"].flatMap(Int.init) ?? 5, 1)
+        let memoryLLMMaxAnswerWords = max(environment["RESPONDER_MEMORY_LLM_MAX_ANSWER_WORDS"].flatMap(Int.init) ?? 80, 24)
+        let memoryDefaultFallbackMessage = sanitizedEnvText(
+            environment["RESPONDER_MEMORY_DEFAULT_MESSAGE"],
+            defaultValue: "default"
+        )
+        let memoryRelevantDistanceThreshold = max(
+            environment["RESPONDER_MEMORY_RELEVANCE_DISTANCE_THRESHOLD"].flatMap(Double.init) ?? 0.75,
+            0
+        )
         let sessionID = environment["RESPONDER_SESSION_ID"] ?? "optional-session-id"
-        let sttOnHold = parseBool(environment["RESPONDER_STT_ON_HOLD"], defaultValue: true)
-        let yoloOnHold = parseBool(environment["RESPONDER_YOLO_ON_HOLD"], defaultValue: true)
-        let yamnetOnHold = parseBool(environment["RESPONDER_YAMNET_ON_HOLD"], defaultValue: true)
+        let sttOnHold = parseBool(environment["RESPONDER_STT_ON_HOLD"], defaultValue: false)
+        let yoloOnHold = parseBool(environment["RESPONDER_YOLO_ON_HOLD"], defaultValue: false)
+        let yamnetOnHold = parseBool(environment["RESPONDER_YAMNET_ON_HOLD"], defaultValue: false)
+        let speechLocale = environment["RESPONDER_SPEECH_LOCALE"] ?? "en-US"
 
         let settings = InferenceModelSettings(
             personalKey: personalKey,
             credentialCandidates: credentialCandidates,
             yoloModelName: yoloModelName,
             yamnetModelName: yamnetModelName,
-            sttAudioEncoderModelName: sttAudioEncoderModelName,
-            sttDecoderModelName: sttDecoderModelName,
+            qwenAudioEncoderModelName: qwenAudioEncoderModelName,
+            qwenDecoderModelName: qwenDecoderModelName,
+            whisperEncoderModelName: whisperEncoderModelName,
+            whisperDecoderModelName: whisperDecoderModelName,
             modelVersion: modelVersion,
             modelMode: modelMode,
             userPrompt: userPrompt,
@@ -94,11 +124,20 @@ struct InferenceModelSettings {
             maxResponseTokens: maxResponseTokens,
             maxFramesPerChunk: maxFramesPerChunk,
             audioSamplesPerChunk: audioSamplesPerChunk,
+            sttTimeoutSeconds: sttTimeoutSeconds,
+            memoryLLMEnabled: memoryLLMEnabled,
+            memoryLLMModelName: memoryLLMModelName,
+            memoryLLMModelVersion: memoryLLMModelVersion,
+            memoryLLMMaxMemories: memoryLLMMaxMemories,
+            memoryLLMMaxAnswerWords: memoryLLMMaxAnswerWords,
+            memoryDefaultFallbackMessage: memoryDefaultFallbackMessage,
+            memoryRelevantDistanceThreshold: memoryRelevantDistanceThreshold,
             sessionID: sessionID,
             sttOnHold: sttOnHold,
             yoloOnHold: yoloOnHold,
             yamnetOnHold: yamnetOnHold,
-            audioEngine: audioEngine
+            audioEngine: audioEngine,
+            speechLocale: speechLocale
         )
         return settings
     }
@@ -113,6 +152,11 @@ struct InferenceModelSettings {
         default:
             return defaultValue
         }
+    }
+
+    private static func sanitizedEnvText(_ value: String?, defaultValue: String) -> String {
+        let trimmed = value?.trimmingCharacters(in: CharacterSet(charactersIn: "\"'").union(.whitespacesAndNewlines)) ?? ""
+        return trimmed.isEmpty ? defaultValue : trimmed
     }
 }
 
@@ -169,7 +213,31 @@ enum InferenceEngineFactory {
     ) {
         let settings = InferenceModelSettings.fromEnvironment()
         let yoloEngine = ZeticMLInferenceEngine(settings: settings)
-        let sttEngine: AudioTranscriptionEngine = QwenOmniTranscriptionEngine(settings: settings)
+        let sttEngine: AudioTranscriptionEngine
+        switch settings.audioEngine.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() {
+        case "QWEN", "OMNI", "QWEN_OMNI":
+            sttEngine = HybridTranscriptionEngine(
+                settings: settings,
+                primary: QwenOmniTranscriptionEngine(settings: settings),
+                fallback: AppleSpeechTranscriptionEngine(settings: settings)
+            )
+        case "WHISPER":
+            sttEngine = WhisperTinyTranscriptionEngine(settings: settings)
+        case "APPLE", "SPEECH", "SFSPEECH":
+            sttEngine = AppleSpeechTranscriptionEngine(settings: settings)
+        case "HYBRID":
+            sttEngine = HybridTranscriptionEngine(
+                settings: settings,
+                primary: WhisperTinyTranscriptionEngine(settings: settings),
+                fallback: AppleSpeechTranscriptionEngine(settings: settings)
+            )
+        default:
+            sttEngine = HybridTranscriptionEngine(
+                settings: settings,
+                primary: WhisperTinyTranscriptionEngine(settings: settings),
+                fallback: AppleSpeechTranscriptionEngine(settings: settings)
+            )
+        }
         let yamnetEngine: AudioTranscriptionEngine = YamnetAudioClassificationEngine(settings: settings)
         return (
             yoloEngine,
@@ -376,7 +444,13 @@ final class ChunkedAudioTranscriptionPipeline {
             pending.append(chunk)
         }
 
-        onStatus?("Buffered \(buffer.count) samples, queued \(pending.count) chunk(s)")
+        if pending.isEmpty, !isProcessing, buffer.count < windowSamples {
+            onStatus?("Buffered \(buffer.count)/\(windowSamples) samples, waiting for \(windowSamples - buffer.count) more")
+        } else if isProcessing {
+            onStatus?("\(statusPrefix) processing current chunk, buffered \(buffer.count) samples, queued \(pending.count) chunk(s)")
+        } else {
+            onStatus?("Buffered \(buffer.count) samples, queued \(pending.count) chunk(s)")
+        }
 
         if pending.count > maxPendingChunks {
             pending.removeFirst(pending.count - maxPendingChunks)
@@ -439,11 +513,23 @@ final class ChunkedAudioTranscriptionPipeline {
                 cooldownUntil = nil
                 onTranscript?(payload)
             } catch {
-                cooldownUntil = Date().addingTimeInterval(10)
-                onStatus?("\(statusPrefix) failed")
-                onError?(error.localizedDescription)
+                if isSoftTranscriptionMiss(error) {
+                    cooldownUntil = nil
+                    onStatus?("\(statusPrefix) listening...")
+                    print("[Responder][\(statusPrefix)][INFO] Soft miss: \(error.localizedDescription)")
+                } else {
+                    cooldownUntil = Date().addingTimeInterval(10)
+                    onStatus?("\(statusPrefix) failed")
+                    onError?(error.localizedDescription)
+                }
             }
         }
+    }
+
+    private func isSoftTranscriptionMiss(_ error: Error) -> Bool {
+        let text = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return text.contains("no speech detected")
+            || text.contains("speech recognizer returned an empty transcription")
     }
 }
 

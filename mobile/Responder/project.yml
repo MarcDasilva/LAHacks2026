@@ -7,9 +7,12 @@ settings:
     PRODUCT_BUNDLE_IDENTIFIER: com.lahacks.responder
     SWIFT_VERSION: 5.0
 packages:
+  SQLiteVec:
+    url: https://github.com/jkrukowski/SQLiteVec
+    from: 0.0.9
   ZeticMLangeiOS:
     url: https://github.com/zetic-ai/ZeticMLangeiOS.git
-    exactVersion: 1.7.0-beta.1
+    exactVersion: 1.6.0
   WebRTC:
     url: https://github.com/stasel/WebRTC.git
     branch: latest
@@ -19,6 +22,8 @@ targets:
     platform: iOS
     sources:
       - Responder
+    resources:
+      - Responder/Resources
     info:
       path: Responder/Info.plist
       properties:
@@ -40,6 +45,8 @@ targets:
           - "-framework"
           - "Accelerate"
     dependencies:
+      - package: SQLiteVec
+        product: SQLiteVec
       - package: ZeticMLangeiOS
         product: ZeticMLange
       - package: WebRTC

@@ -1,6 +1,15 @@
 {
-  "originHash" : "cfa76c51805f17ca5ee30e802ca398fbba24f38ac5532af13b9a828a1a3d4e54",
+  "originHash" : "1d8f04d0c969ff8d755361a26da4bb0e10b863f9e5c22ac66c4f5b73f0fb402b",
   "pins" : [
+    {
+      "identity" : "sqlitevec",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/jkrukowski/SQLiteVec",
+      "state" : {
+        "revision" : "1504246d0900db950a5065f43fce964bf4adceda",
+        "version" : "0.0.14"
+      }
+    },
     {
       "identity" : "webrtc",
       "kind" : "remoteSourceControl",
@@ -15,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/zetic-ai/ZeticMLangeiOS.git",
       "state" : {
-        "revision" : "73be12abd9bfce1a9f6a07e9e5c74c8547e42fa9",
-        "version" : "1.7.0-beta.1"
+        "revision" : "6070b1846a63abaa240a8a1dd409beea668cbefd",
+        "version" : "1.6.0"
       }
     }
   ],

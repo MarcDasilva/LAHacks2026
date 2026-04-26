@@ -10,6 +10,12 @@ interface Props {
   sessionId?: string;
   /** Ratio of point size to scene extent. Tune for visual density. */
   pointSizeFactor?: number;
+  /** Optional camera-trajectory JSON: { points: [[x,y,z], ...] } */
+  pathUrl?: string;
+  /** If true, drag only rotates around the vertical axis (azimuth). */
+  lockElevation?: boolean;
+  /** Rotate 180° around X so COLMAP's image-style Y-down frame reads up. */
+  flipUp?: boolean;
 }
 
 export function PointCloudViewer({
@@ -17,6 +23,9 @@ export function PointCloudViewer({
   bridgeUrl,
   sessionId,
   pointSizeFactor = 0.0025,
+  pathUrl,
+  lockElevation = false,
+  flipUp = false,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -126,9 +135,11 @@ export function PointCloudViewer({
         if (d > maxExtent) maxExtent = d;
       }
       const center = new THREE.Vector3(cx, cy, cz);
-      const radius = maxExtent * 1.6;
+      // Closer initial framing — sit just outside the cloud rather than
+      // 1.6× away, so the environment fills the viewport on first paint.
+      const radius = maxExtent * 0.2;
 
-      const camera = new THREE.PerspectiveCamera(55, w / h, maxExtent * 0.01, maxExtent * 10);
+      const camera = new THREE.PerspectiveCamera(55, w / h, maxExtent * 0.001, maxExtent * 10);
 
       const geom = new THREE.BufferGeometry();
       geom.setAttribute("position", new THREE.BufferAttribute(positions, 3));
@@ -144,28 +155,131 @@ export function PointCloudViewer({
         transparent: true,
         opacity: 0.95,
       });
+      // Group hosting the cloud + path overlays. Rotated 180° around X when
+      // flipUp is set so COLMAP's image-style frame (Y-down) reads with
+      // gravity in the viewer.
+      const sceneGroup = new THREE.Group();
+      if (flipUp) sceneGroup.rotation.x = Math.PI;
+      scene.add(sceneGroup);
+
       const cloud = new THREE.Points(geom, mat);
-      scene.add(cloud);
+      sceneGroup.add(cloud);
+
+      // Optional camera-trajectory polyline. Fetched lazily so a missing
+      // path file doesn't block the cloud render. Coloured as a vertex
+      // gradient (early frames cool → late frames warm) so the direction
+      // of travel is readable at a glance.
+      const disposables: Array<{ dispose: () => void }> = [];
+      if (pathUrl) {
+        try {
+          const pathRes = await fetch(pathUrl, { cache: "no-store" });
+          if (pathRes.ok) {
+            const payload = (await pathRes.json()) as { points?: number[][] };
+            const pts = Array.isArray(payload.points) ? payload.points : [];
+            if (pts.length >= 2 && !disposed) {
+              const pp = new Float32Array(pts.length * 3);
+              const pc = new Float32Array(pts.length * 3);
+              for (let i = 0; i < pts.length; i++) {
+                pp[i * 3] = pts[i][0];
+                pp[i * 3 + 1] = pts[i][1];
+                pp[i * 3 + 2] = pts[i][2];
+                const t = i / Math.max(1, pts.length - 1);
+                // cool → warm gradient
+                pc[i * 3] = 0.35 + 0.55 * t;        // r
+                pc[i * 3 + 1] = 0.55 + 0.15 * (1 - t); // g
+                pc[i * 3 + 2] = 0.95 - 0.55 * t;    // b
+              }
+              // WebGL ignores Line linewidth on most drivers, so draw the
+              // trajectory as a TubeGeometry along a Catmull-Rom curve —
+              // gives a real, controllable thickness in 3D.
+              const curvePts: import("three").Vector3[] = [];
+              for (let i = 0; i < pts.length; i++) {
+                curvePts.push(new THREE.Vector3(pp[i * 3], pp[i * 3 + 1], pp[i * 3 + 2]));
+              }
+              const curve = new THREE.CatmullRomCurve3(curvePts, false, "catmullrom", 0.5);
+              const tubeGeom = new THREE.TubeGeometry(
+                curve,
+                Math.max(64, pts.length * 4),
+                maxExtent * 0.004,
+                10,
+                false
+              );
+              const tubeMat = new THREE.MeshBasicMaterial({
+                color: 0xff7a45,
+                transparent: true,
+                opacity: 0.95,
+                depthWrite: false,
+              });
+              sceneGroup.add(new THREE.Mesh(tubeGeom, tubeMat));
+              disposables.push(tubeGeom, tubeMat);
+
+              // Thin bright underline so the path remains crisp at any zoom.
+              const pathGeom = new THREE.BufferGeometry();
+              pathGeom.setAttribute("position", new THREE.BufferAttribute(pp, 3));
+              pathGeom.setAttribute("color", new THREE.BufferAttribute(pc, 3));
+              const pathMat = new THREE.LineBasicMaterial({
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.85,
+              });
+              sceneGroup.add(new THREE.Line(pathGeom, pathMat));
+              disposables.push(pathGeom, pathMat);
+
+              // Endpoint dots so the start/end of the trajectory pop.
+              const endsGeom = new THREE.BufferGeometry();
+              endsGeom.setAttribute(
+                "position",
+                new THREE.BufferAttribute(
+                  new Float32Array([pp[0], pp[1], pp[2], pp[pp.length - 3], pp[pp.length - 2], pp[pp.length - 1]]),
+                  3
+                )
+              );
+              endsGeom.setAttribute(
+                "color",
+                new THREE.BufferAttribute(
+                  new Float32Array([0.35, 0.7, 0.95, 0.9, 0.55, 0.4]),
+                  3
+                )
+              );
+              const endsMat = new THREE.PointsMaterial({
+                size: maxExtent * pointSizeFactor * 8,
+                vertexColors: true,
+                sizeAttenuation: true,
+                transparent: true,
+                opacity: 1.0,
+              });
+              sceneGroup.add(new THREE.Points(endsGeom, endsMat));
+              disposables.push(endsGeom, endsMat);
+            }
+          }
+        } catch {
+          // Path overlay is optional — never fail the whole render on it.
+        }
+      }
 
       const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(w, h);
       container.appendChild(renderer.domElement);
 
-      // Orbit: drag to rotate, scroll to zoom.
+      // Drag: horizontal = rotate around vertical axis, vertical = pan up/down.
       let azimuth = 0;
-      let elevation = 0.3;
+      const elevation = 0.3;
       let dist = radius;
+      let panY = 0;
       let dragging = false;
       let lastX = 0;
       let lastY = 0;
 
       const updateCamera = () => {
-        const x = center.x + dist * Math.cos(elevation) * Math.sin(azimuth);
-        const y = center.y + dist * Math.sin(elevation);
-        const z = center.z + dist * Math.cos(elevation) * Math.cos(azimuth);
+        const tx = center.x;
+        const ty = center.y + panY;
+        const tz = center.z;
+        const x = tx + dist * Math.cos(elevation) * Math.sin(azimuth);
+        const y = ty + dist * Math.sin(elevation);
+        const z = tz + dist * Math.cos(elevation) * Math.cos(azimuth);
         camera.position.set(x, y, z);
-        camera.lookAt(center);
+        camera.lookAt(tx, ty, tz);
       };
       updateCamera();
 
@@ -177,8 +291,14 @@ export function PointCloudViewer({
       };
       const onMove = (e: PointerEvent) => {
         if (!dragging) return;
-        azimuth -= (e.clientX - lastX) * 0.005;
-        elevation = Math.max(-1.4, Math.min(1.4, elevation + (e.clientY - lastY) * 0.005));
+        // Horizontal drag rotates around the vertical axis; vertical drag pans
+        // the view up/down. Pan speed scales with zoom for consistent feel.
+        const dx = e.clientX - lastX;
+        const dy = e.clientY - lastY;
+        azimuth -= dx * 0.005;
+        panY -= dy * dist * 0.0025;
+        const limit = maxExtent * 4;
+        panY = Math.max(-limit, Math.min(limit, panY));
         lastX = e.clientX;
         lastY = e.clientY;
         updateCamera();
@@ -189,7 +309,7 @@ export function PointCloudViewer({
       const onWheel = (e: WheelEvent) => {
         e.preventDefault();
         const factor = Math.exp(e.deltaY * 0.001);
-        dist = Math.max(maxExtent * 0.2, Math.min(maxExtent * 6, dist * factor));
+        dist = Math.max(maxExtent * 0.02, Math.min(maxExtent * 6, dist * factor));
         updateCamera();
       };
 
@@ -204,10 +324,7 @@ export function PointCloudViewer({
       const tick = (now: number) => {
         const dt = (now - last) / 1000;
         last = now;
-        if (!dragging) {
-          azimuth += dt * 0.12;
-          updateCamera();
-        }
+        void dt;
         renderer.render(scene, camera);
         rafId = requestAnimationFrame(tick);
       };
@@ -237,6 +354,7 @@ export function PointCloudViewer({
         renderer.dispose();
         geom.dispose();
         mat.dispose();
+        for (const d of disposables) d.dispose();
         if (renderer.domElement.parentElement === container) {
           container.removeChild(renderer.domElement);
         }

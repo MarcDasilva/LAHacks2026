@@ -2,6 +2,8 @@ import Foundation
 import CoreGraphics
 import CoreImage
 import CoreVideo
+import AVFoundation
+import Speech
 
 #if canImport(ZeticMLange)
 import ZeticMLange
@@ -520,21 +522,246 @@ final class ZeticMLInferenceEngine: MLInferenceEngine {
     #endif
 }
 
-final class QwenOmniTranscriptionEngine: AudioTranscriptionEngine {
+#if canImport(ZeticMLange)
+private func responderModelMode(from rawValue: String) -> ModelMode {
+    switch rawValue.uppercased() {
+    case "RUN_SPEED":
+        return .RUN_SPEED
+    case "RUN_ACCURACY":
+        return .RUN_ACCURACY
+    default:
+        return .RUN_AUTO
+    }
+}
+#endif
+
+private struct WhisperFeatureExtractor {
+    private let sampleRate = 16_000
+    private let fftSize = 400
+    private let hopSize = 160
+    private let melBands = 80
+    private let chunkSampleCount = 30 * 16_000
+    private let frameCount = 3000
+
+    func process(_ pcm16kMono: [Float]) -> [Float] {
+        let padded = padOrTrim(pcm16kMono)
+        let frames = stftPowerFrames(samples: padded)
+        guard !frames.isEmpty else {
+            return [Float](repeating: 0, count: melBands * frameCount)
+        }
+
+        let melFilters = makeMelFilterBank()
+        var logMel = [Float](repeating: 0, count: melBands * frameCount)
+
+        for frameIdx in 0..<min(frames.count, frameCount) {
+            let power = frames[frameIdx]
+            var mel = [Float](repeating: 0, count: melBands)
+            for m in 0..<melBands {
+                var sum: Float = 0
+                let filter = melFilters[m]
+                for k in 0..<filter.count {
+                    sum += filter[k] * power[k]
+                }
+                mel[m] = max(sum, 1e-10)
+            }
+
+            let logs = mel.map { log10f($0) }
+            let maxLog = logs.max() ?? 0
+            for melIdx in 0..<melBands {
+                let normalized = max(logs[melIdx], maxLog - 8.0)
+                logMel[melIdx * frameCount + frameIdx] = (normalized + 4.0) / 4.0
+            }
+        }
+
+        return logMel
+    }
+
+    private func padOrTrim(_ samples: [Float]) -> [Float] {
+        if samples.count == chunkSampleCount {
+            return samples
+        }
+        if samples.count > chunkSampleCount {
+            return Array(samples.prefix(chunkSampleCount))
+        }
+        return samples + [Float](repeating: 0, count: chunkSampleCount - samples.count)
+    }
+
+    private func stftPowerFrames(samples: [Float]) -> [[Float]] {
+        let window = periodicHann(count: fftSize)
+        let bins = fftSize / 2 + 1
+        guard samples.count >= fftSize else { return [] }
+
+        var frames = [[Float]]()
+        frames.reserveCapacity(frameCount)
+        var offset = 0
+        while offset + fftSize <= samples.count, frames.count < frameCount {
+            var real = [Float](repeating: 0, count: bins)
+            var imag = [Float](repeating: 0, count: bins)
+
+            for n in 0..<fftSize {
+                let x = samples[offset + n] * window[n]
+                for k in 0..<bins {
+                    let angle = -2 * Float.pi * Float(k * n) / Float(fftSize)
+                    real[k] += x * cos(angle)
+                    imag[k] += x * sin(angle)
+                }
+            }
+
+            var power = [Float](repeating: 0, count: bins)
+            for k in 0..<bins {
+                power[k] = real[k] * real[k] + imag[k] * imag[k]
+            }
+            frames.append(power)
+            offset += hopSize
+        }
+        return frames
+    }
+
+    private func periodicHann(count: Int) -> [Float] {
+        guard count > 0 else { return [] }
+        return (0..<count).map { n in
+            0.5 - 0.5 * cos(2 * Float.pi * Float(n) / Float(count))
+        }
+    }
+
+    private func makeMelFilterBank() -> [[Float]] {
+        let bins = fftSize / 2 + 1
+        let fMin: Float = 0
+        let fMax: Float = Float(sampleRate) / 2
+        let mMin = hzToMel(fMin)
+        let mMax = hzToMel(fMax)
+        let melPoints = (0..<(melBands + 2)).map { i in
+            mMin + Float(i) * (mMax - mMin) / Float(melBands + 1)
+        }
+        let hzPoints = melPoints.map(melToHz)
+        let binPoints = hzPoints.map { hz in
+            Int(floor((Float(fftSize + 1) * hz) / Float(sampleRate)))
+        }
+
+        var filters = Array(repeating: Array(repeating: Float(0), count: bins), count: melBands)
+        for m in 1...melBands {
+            let left = max(0, min(bins - 1, binPoints[m - 1]))
+            let center = max(0, min(bins - 1, binPoints[m]))
+            let right = max(0, min(bins - 1, binPoints[m + 1]))
+            if left == center || center == right { continue }
+
+            for k in left..<center {
+                filters[m - 1][k] = Float(k - left) / Float(center - left)
+            }
+            for k in center..<right {
+                filters[m - 1][k] = Float(right - k) / Float(right - center)
+            }
+
+            let enorm = 2.0 / (hzPoints[m + 1] - hzPoints[m - 1])
+            for k in 0..<bins {
+                filters[m - 1][k] *= enorm
+            }
+        }
+        return filters
+    }
+
+    private func hzToMel(_ hz: Float) -> Float {
+        2595 * log10f(1 + hz / 700)
+    }
+
+    private func melToHz(_ mel: Float) -> Float {
+        700 * (powf(10, mel / 2595) - 1)
+    }
+}
+
+private struct WhisperTokenizer {
+    private let idToToken: [Int: String]
+    private let byteDecoder: [Character: UInt8]
+    private let timestampBegin = 50364
+
+    init() throws {
+        guard let url = Bundle.main.url(forResource: "vocab", withExtension: "json") else {
+            throw NSError(
+                domain: "Responder.STT",
+                code: -130,
+                userInfo: [NSLocalizedDescriptionKey: "vocab.json is missing from the app bundle."]
+            )
+        }
+
+        let data = try Data(contentsOf: url)
+        let vocab = try JSONDecoder().decode([String: Int].self, from: data)
+        self.idToToken = Dictionary(uniqueKeysWithValues: vocab.map { ($1, $0) })
+        self.byteDecoder = Self.makeByteDecoder()
+    }
+
+    func decode(_ tokenIDs: [Int32]) -> String {
+        let filteredTokens = tokenIDs
+            .map(Int.init)
+            .filter { token in
+                token >= 0 && token < timestampBegin
+            }
+            .compactMap { idToToken[$0] }
+            .filter { token in
+                !token.hasPrefix("<|") || !token.hasSuffix("|>")
+            }
+        guard !filteredTokens.isEmpty else { return "" }
+
+        let merged = filteredTokens.joined()
+        var bytes = [UInt8]()
+        bytes.reserveCapacity(merged.utf8.count)
+        for scalar in merged.unicodeScalars {
+            let character = Character(scalar)
+            if let byte = byteDecoder[character] {
+                bytes.append(byte)
+            } else {
+                bytes.append(contentsOf: String(character).utf8)
+            }
+        }
+
+        return String(decoding: bytes, as: UTF8.self)
+    }
+
+    private static func makeByteDecoder() -> [Character: UInt8] {
+        let encodedBytes = Array(33...126) + Array(161...172) + Array(174...255)
+        var byteToScalar: [UInt8: UnicodeScalar] = [:]
+
+        for byte in encodedBytes {
+            byteToScalar[UInt8(byte)] = UnicodeScalar(byte)!
+        }
+
+        var extra = 0
+        for byte in 0...255 {
+            let key = UInt8(byte)
+            if byteToScalar[key] == nil {
+                byteToScalar[key] = UnicodeScalar(UInt32(256 + extra))!
+                extra += 1
+            }
+        }
+
+        var decoder: [Character: UInt8] = [:]
+        decoder.reserveCapacity(byteToScalar.count)
+        for (byte, scalar) in byteToScalar {
+            decoder[Character(scalar)] = byte
+        }
+        return decoder
+    }
+}
+
+final class WhisperTinyTranscriptionEngine: AudioTranscriptionEngine {
     let modelMetadata: TranscriptChunk.ModelMetadata
 
     private let settings: InferenceModelSettings
-    private let melSpectrogram = AudioMelSpectrogram()
+    private let featureExtractor = WhisperFeatureExtractor()
+    private let tokenizer: WhisperTokenizer
+    private let decoderPrompt: [Int32] = [50258, 50259, 50359, 50363]
+    private let decoderMaxLength = 448
+    private let endToken = 50257
 
     init(settings: InferenceModelSettings) {
         self.settings = settings
         self.modelMetadata = TranscriptChunk.ModelMetadata(
             provider: "zetic-ai",
-            name: settings.sttDecoderModelName,
+            name: settings.whisperDecoderModelName,
             version: settings.modelVersion,
             mode: settings.modelMode,
             latencyMS: 0
         )
+        self.tokenizer = try! WhisperTokenizer()
     }
 
     func transcribe(audioSamples16kMono: [Float]) async throws -> TranscriptChunk.TranscriptOutput {
@@ -550,59 +777,23 @@ final class QwenOmniTranscriptionEngine: AudioTranscriptionEngine {
             return TranscriptChunk.TranscriptOutput(text: "", confidence: 0, tensorCount: 0)
         }
 
-        let melChunks = melSpectrogram.makeMelChunksWithMetadata(from: audioSamples16kMono)
-        guard !melChunks.isEmpty else {
-            return TranscriptChunk.TranscriptOutput(text: "", confidence: 0, tensorCount: 0)
-        }
+        let features = featureExtractor.process(audioSamples16kMono)
+        let encoderOutput = try runEncoder(features: features)
+        let tokenIDs = try runDecoder(encoderOutput: encoderOutput)
+        let transcript = tokenizer.decode(tokenIDs).trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let audioEmbeddings = try encodeAudioEmbeddings(melChunks: melChunks)
-        guard !audioEmbeddings.isEmpty else {
+        if transcript.isEmpty {
             return TranscriptChunk.TranscriptOutput(
-                text: "[stt_unavailable] Encoder returned no embeddings.",
+                text: "[stt_unavailable] Decoder produced no transcription.",
                 confidence: 0,
                 tensorCount: 0
             )
         }
 
-        let decoder = try loadDecoderWithRetry(candidateKeys: settings.credentialCandidates)
-        defer {
-            try? decoder.cleanUp()
-        }
-
-        try decoder.validate(profile: .qwenOmniAudio)
-        let merged = try QwenOmniAudioChatTemplate().build(
-            llm: decoder,
-            audioEmbeddings: audioEmbeddings,
-            userText: settings.userPrompt
-        )
-        _ = try decoder.runWithEmbeddings(merged)
-
-        var response = ""
-        var emittedTokenCount = 0
-        while emittedTokenCount < settings.maxResponseTokens {
-            let result = decoder.waitForNextToken()
-            if result.generatedTokens == 0 {
-                break
-            }
-            if !result.token.isEmpty {
-                response += result.token
-                emittedTokenCount += 1
-            }
-        }
-
-        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            return TranscriptChunk.TranscriptOutput(
-                text: "[stt_unavailable] Decoder returned no tokens.",
-                confidence: 0,
-                tensorCount: melChunks.count
-            )
-        }
-
         return TranscriptChunk.TranscriptOutput(
-            text: trimmed,
+            text: transcript,
             confidence: 1,
-            tensorCount: melChunks.count
+            tensorCount: 2
         )
         #else
         throw NSError(
@@ -614,52 +805,101 @@ final class QwenOmniTranscriptionEngine: AudioTranscriptionEngine {
     }
 
     #if canImport(ZeticMLange)
-    private func encodeAudioEmbeddings(melChunks: [AudioMelSpectrogram.MelChunk]) throws -> [Float] {
-        let encoder = try loadAudioEncoderWithRetry(candidateKeys: settings.credentialCandidates)
-
-        var mergedEmbeddings: [Float] = []
-        mergedEmbeddings.reserveCapacity(melChunks.count * 50 * 2048)
-
-        for melChunk in melChunks {
-            let inputTensor = makeTensor(from: melChunk.values, shape: [1, 128, 200])
-            let outputs = try encoder.run(inputs: [inputTensor])
-            guard let embeddingTensor = outputs.max(by: { $0.data.count < $1.data.count }) else {
-                continue
-            }
-
-            let rawEmbeddings = tensorToFloatArray(embeddingTensor)
-            guard !rawEmbeddings.isEmpty else { continue }
-
-            let embeddingDim = 2048
-            let chunkTokenCount = min(50, max(1, Int(ceil(Double(melChunk.validFrameCount) / 4.0))))
-            let expectedCount = chunkTokenCount * embeddingDim
-
-            if rawEmbeddings.count >= expectedCount {
-                mergedEmbeddings.append(contentsOf: rawEmbeddings.prefix(expectedCount))
-            } else {
-                mergedEmbeddings.append(contentsOf: rawEmbeddings)
-            }
+    private func runEncoder(features: [Float]) throws -> Data {
+        let encoder = try loadEncoderWithRetry(candidateKeys: settings.credentialCandidates)
+        let tensor = rawTensor(from: features)
+        let outputs = try encoder.run(inputs: [tensor])
+        guard let output = outputs.first else {
+            throw NSError(
+                domain: "Responder.STT",
+                code: -131,
+                userInfo: [NSLocalizedDescriptionKey: "Whisper encoder returned no outputs."]
+            )
         }
-
-        return mergedEmbeddings
+        return output.data
     }
 
-    private func loadAudioEncoderWithRetry(candidateKeys: [String]) throws -> ZeticMLangeModel {
+    private func runDecoder(encoderOutput: Data) throws -> [Int32] {
+        let decoder = try loadDecoderWithRetry(candidateKeys: settings.credentialCandidates)
+        var tokenIDs = [Int32](repeating: 0, count: decoderMaxLength)
+        var attentionMask = [Int32](repeating: 0, count: decoderMaxLength)
+
+        for (index, token) in decoderPrompt.enumerated() where index < decoderMaxLength {
+            tokenIDs[index] = token
+            attentionMask[index] = 1
+        }
+
+        var generatedIDs: [Int32] = []
+        var currentIndex = max(decoderPrompt.count - 1, 0)
+
+        while currentIndex < decoderMaxLength - 1 && generatedIDs.count < settings.maxResponseTokens {
+            let logits = try decodeStep(
+                decoder: decoder,
+                tokenIDs: tokenIDs,
+                encoderOutput: encoderOutput,
+                attentionMask: attentionMask
+            )
+
+            let vocabSize = logits.count / decoderMaxLength
+            guard vocabSize > 0 else { break }
+            let start = vocabSize * currentIndex
+            let end = min(start + vocabSize, logits.count)
+            guard start < end else { break }
+
+            let nextToken = argmax(Array(logits[start..<end]))
+            if nextToken == endToken {
+                break
+            }
+
+            generatedIDs.append(Int32(nextToken))
+            currentIndex += 1
+            tokenIDs[currentIndex] = Int32(nextToken)
+            attentionMask[currentIndex] = 1
+        }
+
+        return generatedIDs
+    }
+
+    private func decodeStep(
+        decoder: ZeticMLangeModel,
+        tokenIDs: [Int32],
+        encoderOutput: Data,
+        attentionMask: [Int32]
+    ) throws -> [Float] {
+        let outputs = try decoder.run(inputs: [
+            rawTensor(from: tokenIDs),
+            Tensor(data: encoderOutput, dataType: BuiltinDataType.int8, shape: [encoderOutput.count]),
+            rawTensor(from: attentionMask),
+        ])
+
+        guard let logitsTensor = outputs.first else {
+            throw NSError(
+                domain: "Responder.STT",
+                code: -132,
+                userInfo: [NSLocalizedDescriptionKey: "Whisper decoder returned no logits."]
+            )
+        }
+        return tensorToFloatArray(logitsTensor)
+    }
+
+    private func loadEncoderWithRetry(candidateKeys: [String]) throws -> ZeticMLangeModel {
         var lastError: Error?
         let keys = candidateKeys.isEmpty ? [settings.personalKey] : candidateKeys
+        let mode = responderModelMode(from: settings.modelMode)
 
         for key in keys {
             for attempt in 1...3 {
                 do {
-                    print("[Responder][STT] Loading encoder model=\(settings.sttAudioEncoderModelName) attempt=\(attempt) keyPrefix=\(keyPrefix(key))")
+                    print("[Responder][STT] Loading whisper encoder model=\(settings.whisperEncoderModelName) attempt=\(attempt) keyPrefix=\(keyPrefix(key))")
                     return try ZeticMLangeModel(
                         personalKey: key,
-                        name: settings.sttAudioEncoderModelName,
-                        target: .ZETIC_MLANGE_TARGET_COREML
+                        name: settings.whisperEncoderModelName,
+                        version: settings.modelVersion,
+                        modelMode: mode
                     )
                 } catch {
                     lastError = error
-                    print("[Responder][STT][ERROR] Encoder load failed attempt=\(attempt): \(error.localizedDescription)")
+                    print("[Responder][STT][ERROR] Whisper encoder load failed attempt=\(attempt): \(error.localizedDescription)")
                     if attempt < 3, isLikelyNetworkError(error) {
                         Thread.sleep(forTimeInterval: Double(attempt))
                         continue
@@ -669,31 +909,34 @@ final class QwenOmniTranscriptionEngine: AudioTranscriptionEngine {
         }
 
         throw makeSTTStageError(
-            stage: "load_audio_encoder",
-            modelName: settings.sttAudioEncoderModelName,
+            stage: "load_whisper_encoder",
+            modelName: settings.whisperEncoderModelName,
             underlying: lastError ?? NSError(
-            domain: "Responder.STT",
-            code: -10,
-            userInfo: [NSLocalizedDescriptionKey: "Failed to load STT audio encoder model."]
-        )
+                domain: "Responder.STT",
+                code: -133,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to load Whisper encoder model."]
+            )
         )
     }
 
-    private func loadDecoderWithRetry(candidateKeys: [String]) throws -> ZeticMLangeLLMModel {
+    private func loadDecoderWithRetry(candidateKeys: [String]) throws -> ZeticMLangeModel {
         var lastError: Error?
         let keys = candidateKeys.isEmpty ? [settings.personalKey] : candidateKeys
+        let mode = responderModelMode(from: settings.modelMode)
 
         for key in keys {
             for attempt in 1...3 {
                 do {
-                    print("[Responder][STT] Loading decoder model=\(settings.sttDecoderModelName) attempt=\(attempt) keyPrefix=\(keyPrefix(key))")
-                    return try ZeticMLangeLLMModel(
+                    print("[Responder][STT] Loading whisper decoder model=\(settings.whisperDecoderModelName) attempt=\(attempt) keyPrefix=\(keyPrefix(key))")
+                    return try ZeticMLangeModel(
                         personalKey: key,
-                        name: settings.sttDecoderModelName
+                        name: settings.whisperDecoderModelName,
+                        version: settings.modelVersion,
+                        modelMode: mode
                     )
                 } catch {
                     lastError = error
-                    print("[Responder][STT][ERROR] Decoder load failed attempt=\(attempt): \(error.localizedDescription)")
+                    print("[Responder][STT][ERROR] Whisper decoder load failed attempt=\(attempt): \(error.localizedDescription)")
                     if attempt < 3, isLikelyNetworkError(error) {
                         Thread.sleep(forTimeInterval: Double(attempt))
                         continue
@@ -703,19 +946,19 @@ final class QwenOmniTranscriptionEngine: AudioTranscriptionEngine {
         }
 
         throw makeSTTStageError(
-            stage: "load_decoder",
-            modelName: settings.sttDecoderModelName,
+            stage: "load_whisper_decoder",
+            modelName: settings.whisperDecoderModelName,
             underlying: lastError ?? NSError(
-            domain: "Responder.STT",
-            code: -11,
-            userInfo: [NSLocalizedDescriptionKey: "Failed to load STT decoder model."]
-        )
+                domain: "Responder.STT",
+                code: -134,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to load Whisper decoder model."]
+            )
         )
     }
 
-    private func makeTensor(from floats: [Float], shape: [Int]) -> Tensor {
-        let data = floats.withUnsafeBufferPointer { Data(buffer: $0) }
-        return Tensor(data: data, dataType: BuiltinDataType.float32, shape: shape)
+    private func rawTensor<T>(from values: [T]) -> Tensor {
+        let data = values.withUnsafeBufferPointer { Data(buffer: $0) }
+        return Tensor(data: data, dataType: BuiltinDataType.int8, shape: [data.count])
     }
 
     private func tensorToFloatArray(_ tensor: Tensor) -> [Float] {
@@ -734,6 +977,17 @@ final class QwenOmniTranscriptionEngine: AudioTranscriptionEngine {
             }
         }
         return floats
+    }
+
+    private func argmax(_ values: [Float]) -> Int {
+        guard !values.isEmpty else { return 0 }
+        var bestIndex = 0
+        var bestValue = values[0]
+        for (index, value) in values.enumerated() where value > bestValue {
+            bestIndex = index
+            bestValue = value
+        }
+        return bestIndex
     }
 
     private func isLikelyNetworkError(_ error: Error) -> Bool {
@@ -769,6 +1023,352 @@ final class QwenOmniTranscriptionEngine: AudioTranscriptionEngine {
         )
     }
     #endif
+}
+
+final class AppleSpeechTranscriptionEngine: AudioTranscriptionEngine {
+    let modelMetadata: TranscriptChunk.ModelMetadata
+
+    private let settings: InferenceModelSettings
+    private let locale: Locale
+    private let timeoutSeconds: Int
+
+    private final class SpeechRecognitionTaskBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var task: SFSpeechRecognitionTask?
+
+        func set(_ task: SFSpeechRecognitionTask?) {
+            lock.lock()
+            self.task = task
+            lock.unlock()
+        }
+
+        func cancel() {
+            lock.lock()
+            let task = self.task
+            lock.unlock()
+            task?.cancel()
+        }
+    }
+
+    private final class SpeechRecognitionResultBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var transcript = ""
+
+        func update(_ value: String) {
+            lock.lock()
+            transcript = value
+            lock.unlock()
+        }
+
+        func current() -> String {
+            lock.lock()
+            let value = transcript
+            lock.unlock()
+            return value
+        }
+    }
+
+    init(settings: InferenceModelSettings) {
+        self.settings = settings
+        self.locale = Locale(identifier: settings.speechLocale)
+        self.timeoutSeconds = max(settings.sttTimeoutSeconds, 6)
+        self.modelMetadata = TranscriptChunk.ModelMetadata(
+            provider: "apple",
+            name: "SFSpeechRecognizer(\(settings.speechLocale))",
+            version: nil,
+            mode: "FALLBACK",
+            latencyMS: 0
+        )
+    }
+
+    func transcribe(audioSamples16kMono: [Float]) async throws -> TranscriptChunk.TranscriptOutput {
+        guard !audioSamples16kMono.isEmpty else {
+            return TranscriptChunk.TranscriptOutput(text: "", confidence: 0, tensorCount: 0)
+        }
+
+        print("[Responder][STT][APPLE] Starting transcription samples=\(audioSamples16kMono.count)")
+
+        let authorization = await Self.requestAuthorizationIfNeeded()
+        guard authorization == .authorized else {
+            throw NSError(
+                domain: "Responder.STT",
+                code: -210,
+                userInfo: [NSLocalizedDescriptionKey: "Speech recognition permission is not authorized for Apple STT fallback."]
+            )
+        }
+
+        guard let recognizer = SFSpeechRecognizer(locale: locale), recognizer.isAvailable else {
+            throw NSError(
+                domain: "Responder.STT",
+                code: -211,
+                userInfo: [NSLocalizedDescriptionKey: "Apple speech recognizer is unavailable for locale \(settings.speechLocale)."]
+            )
+        }
+
+        let audioURL = try writeTemporaryWAV(audioSamples16kMono)
+        defer { try? FileManager.default.removeItem(at: audioURL) }
+
+        let request = SFSpeechURLRecognitionRequest(url: audioURL)
+        request.taskHint = .dictation
+        request.shouldReportPartialResults = true
+        if #available(iOS 13, *) {
+            request.requiresOnDeviceRecognition = false
+        }
+        if #available(iOS 16, *) {
+            request.addsPunctuation = true
+        }
+
+        let text = try await recognizeText(
+            recognizer: recognizer,
+            request: request,
+            timeoutSeconds: timeoutSeconds
+        )
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw NSError(
+                domain: "Responder.STT",
+                code: -212,
+                userInfo: [NSLocalizedDescriptionKey: "Apple speech recognizer returned an empty transcription."]
+            )
+        }
+
+        print("[Responder][STT][APPLE] Completed transcription text=\(trimmed)")
+
+        return TranscriptChunk.TranscriptOutput(
+            text: trimmed,
+            confidence: 1,
+            tensorCount: 1
+        )
+    }
+
+    private func recognizeText(
+        recognizer: SFSpeechRecognizer,
+        request: SFSpeechURLRecognitionRequest,
+        timeoutSeconds: Int
+    ) async throws -> String {
+        let taskBox = SpeechRecognitionTaskBox()
+        let resultBox = SpeechRecognitionResultBox()
+
+        return try await withThrowingTaskGroup(of: String.self) { group in
+            group.addTask {
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+                    var hasResumed = false
+
+                    func resume(_ result: Result<String, Error>) {
+                        guard !hasResumed else { return }
+                        hasResumed = true
+                        taskBox.cancel()
+                        continuation.resume(with: result)
+                    }
+
+                    let task = recognizer.recognitionTask(with: request) { result, error in
+                        if let error {
+                            resume(.failure(error))
+                            return
+                        }
+                        guard let result else { return }
+                        let transcript = result.bestTranscription.formattedString
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !transcript.isEmpty {
+                            resultBox.update(transcript)
+                            print("[Responder][STT][APPLE] Received transcript final=\(result.isFinal) text=\(transcript)")
+                            if result.isFinal {
+                                resume(.success(transcript))
+                            }
+                        }
+                    }
+                    taskBox.set(task)
+                }
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(timeoutSeconds) * 1_000_000_000)
+                let bestPartial = resultBox.current().trimmingCharacters(in: .whitespacesAndNewlines)
+                if !bestPartial.isEmpty {
+                    print("[Responder][STT][APPLE] Timeout reached, returning best partial text=\(bestPartial)")
+                    return bestPartial
+                }
+                throw NSError(
+                    domain: "Responder.STT",
+                    code: -214,
+                    userInfo: [NSLocalizedDescriptionKey: "Apple speech recognizer timed out after \(timeoutSeconds) seconds."]
+                )
+            }
+
+            do {
+                let result = try await group.next()!
+                group.cancelAll()
+                taskBox.cancel()
+                return result
+            } catch {
+                group.cancelAll()
+                taskBox.cancel()
+                throw error
+            }
+        }
+    }
+
+    private static func requestAuthorizationIfNeeded() async -> SFSpeechRecognizerAuthorizationStatus {
+        let current = SFSpeechRecognizer.authorizationStatus()
+        if current != .notDetermined {
+            return current
+        }
+        return await withCheckedContinuation { continuation in
+            SFSpeechRecognizer.requestAuthorization { status in
+                continuation.resume(returning: status)
+            }
+        }
+    }
+
+    private func writeTemporaryWAV(_ samples: [Float]) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("wav")
+
+        let int16Samples = samples.map { sample -> Int16 in
+            let clamped = max(-1.0, min(1.0, sample))
+            return Int16(clamped * Float(Int16.max))
+        }
+
+        let dataByteCount = int16Samples.count * MemoryLayout<Int16>.size
+        let totalSize = 44 + dataByteCount
+        var data = Data(capacity: totalSize)
+
+        func appendASCII(_ string: String) {
+            data.append(contentsOf: string.utf8)
+        }
+
+        func appendUInt32(_ value: UInt32) {
+            var littleEndian = value.littleEndian
+            withUnsafeBytes(of: &littleEndian) { data.append(contentsOf: $0) }
+        }
+
+        func appendUInt16(_ value: UInt16) {
+            var littleEndian = value.littleEndian
+            withUnsafeBytes(of: &littleEndian) { data.append(contentsOf: $0) }
+        }
+
+        appendASCII("RIFF")
+        appendUInt32(UInt32(36 + dataByteCount))
+        appendASCII("WAVE")
+        appendASCII("fmt ")
+        appendUInt32(16)
+        appendUInt16(1)
+        appendUInt16(1)
+        appendUInt32(16_000)
+        appendUInt32(16_000 * 2)
+        appendUInt16(2)
+        appendUInt16(16)
+        appendASCII("data")
+        appendUInt32(UInt32(dataByteCount))
+        int16Samples.forEach { appendUInt16(UInt16(bitPattern: $0)) }
+
+        try data.write(to: url, options: .atomic)
+        return url
+    }
+}
+
+final class HybridTranscriptionEngine: AudioTranscriptionEngine {
+    let modelMetadata: TranscriptChunk.ModelMetadata
+
+    private let settings: InferenceModelSettings
+    private let primary: AudioTranscriptionEngine
+    private let fallback: AudioTranscriptionEngine
+
+    init(settings: InferenceModelSettings, primary: AudioTranscriptionEngine, fallback: AudioTranscriptionEngine) {
+        self.settings = settings
+        self.primary = primary
+        self.fallback = fallback
+        self.modelMetadata = TranscriptChunk.ModelMetadata(
+            provider: "hybrid",
+            name: "\(primary.modelMetadata.name) -> \(fallback.modelMetadata.name)",
+            version: settings.modelVersion,
+            mode: settings.modelMode,
+            latencyMS: 0
+        )
+    }
+
+    func transcribe(audioSamples16kMono: [Float]) async throws -> TranscriptChunk.TranscriptOutput {
+        do {
+            let primaryResult = try await runWithTimeout(
+                seconds: settings.sttTimeoutSeconds,
+                engine: primary,
+                audioSamples16kMono: audioSamples16kMono
+            )
+            if shouldAccept(primaryResult.text) {
+                return primaryResult
+            }
+            print("[Responder][STT] Primary STT returned fallback text, switching to Apple Speech.")
+        } catch {
+            print("[Responder][STT][WARN] Primary STT failed or timed out: \(error.localizedDescription)")
+        }
+
+        let fallbackResult = try await fallback.transcribe(audioSamples16kMono: audioSamples16kMono)
+        return TranscriptChunk.TranscriptOutput(
+            text: fallbackResult.text,
+            confidence: fallbackResult.confidence,
+            tensorCount: fallbackResult.tensorCount
+        )
+    }
+
+    private func runWithTimeout(
+        seconds: Int,
+        engine: AudioTranscriptionEngine,
+        audioSamples16kMono: [Float]
+    ) async throws -> TranscriptChunk.TranscriptOutput {
+        try await withThrowingTaskGroup(of: TranscriptChunk.TranscriptOutput.self) { group in
+            group.addTask {
+                try await engine.transcribe(audioSamples16kMono: audioSamples16kMono)
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
+                throw NSError(
+                    domain: "Responder.STT",
+                    code: -213,
+                    userInfo: [NSLocalizedDescriptionKey: "Primary STT timed out after \(seconds) seconds."]
+                )
+            }
+
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
+        }
+    }
+
+    private func shouldAccept(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        return !trimmed.hasPrefix("[stt_unavailable]")
+    }
+}
+
+final class QwenOmniTranscriptionEngine: AudioTranscriptionEngine {
+    let modelMetadata: TranscriptChunk.ModelMetadata
+
+    private let settings: InferenceModelSettings
+
+    init(settings: InferenceModelSettings) {
+        self.settings = settings
+        self.modelMetadata = TranscriptChunk.ModelMetadata(
+            provider: "zetic-ai",
+            name: settings.qwenDecoderModelName,
+            version: settings.modelVersion,
+            mode: settings.modelMode,
+            latencyMS: 0
+        )
+    }
+
+    func transcribe(audioSamples16kMono: [Float]) async throws -> TranscriptChunk.TranscriptOutput {
+        guard !audioSamples16kMono.isEmpty else {
+            return TranscriptChunk.TranscriptOutput(text: "", confidence: 0, tensorCount: 0)
+        }
+
+        return TranscriptChunk.TranscriptOutput(
+            text: "[stt_unavailable] Qwen Omni STT requires newer ZeticMLange APIs than the pinned 1.6.0 package.",
+            confidence: 0,
+            tensorCount: 0
+        )
+    }
 }
 
 final class YamnetAudioClassificationEngine: AudioTranscriptionEngine {
@@ -851,28 +1451,10 @@ final class YamnetAudioClassificationEngine: AudioTranscriptionEngine {
 
     #if canImport(ZeticMLange)
     private func runYamnet(model: ZeticMLangeModel, audioSamples16kMono: [Float]) throws -> [Tensor] {
-        // Try common waveform tensor shapes because model wrappers vary by backend export.
-        let candidateShapes: [[Int]] = [
-            [1, audioSamples16kMono.count],
-            [audioSamples16kMono.count],
-            [audioSamples16kMono.count, 1]
-        ]
-
-        var lastError: Error?
-        for shape in candidateShapes {
-            do {
-                let input = makeTensor(from: audioSamples16kMono, shape: shape)
-                return try model.run(inputs: [input])
-            } catch {
-                lastError = error
-            }
-        }
-
-        throw lastError ?? NSError(
-            domain: "Responder.YAMNet",
-            code: -20,
-            userInfo: [NSLocalizedDescriptionKey: "Failed to run YAMNet with supported input shapes."]
-        )
+        // Use the known-good batch waveform shape. Probing alternate shapes can crash
+        // inside the native runtime before Swift error handling gets a chance to recover.
+        let input = makeTensor(from: audioSamples16kMono, shape: [1, audioSamples16kMono.count])
+        return try model.run(inputs: [input])
     }
 
     private func topClassPredictions(from outputs: [Tensor], topK: Int, rmsEnergy: Float) -> [(Int, Float)] {

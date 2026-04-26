@@ -7,18 +7,22 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0003FE7DC02D2214B664D808 /* OnDeviceMemoryIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 763FC5476E0D86B2AAD362A7 /* OnDeviceMemoryIndex.swift */; };
 		0C46FA4012DE074A886D5FCC /* CameraPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DE726B899AF070DC908A09C /* CameraPreviewView.swift */; };
-		1EE19E6F1033CF9C9DEFCB06 /* ZeticMLange in Frameworks */ = {isa = PBXBuildFile; productRef = 6659DD6186F39F9B64B14679 /* ZeticMLange */; };
-		A1B2C3D4E5F60718293A4B5C /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60718293A4B5D /* WebRTC */; };
-		2A9F31B12A91B00100000001 /* yamnet_class_map.csv in Resources */ = {isa = PBXBuildFile; fileRef = 2A9F31B12A91B00100000002 /* yamnet_class_map.csv */; };
+		1EE19E6F1033CF9C9DEFCB06 /* SQLiteVec in Frameworks */ = {isa = PBXBuildFile; productRef = AF86C9479BC1D053D85461EF /* SQLiteVec */; };
+		485ED0C90402FD145AC54816 /* ZeticMemoryAnswerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5911D28BA386A424D6CE6B7 /* ZeticMemoryAnswerService.swift */; };
 		4D064C8B26EA22E4F1525599 /* InferencePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B504230775C7BD924DF100 /* InferencePipeline.swift */; };
 		5EE651B17EBAD02035CAD1CD /* CameraCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C0D0842D28810A97AC28A18 /* CameraCaptureService.swift */; };
-		7A31E5D44E71A002D067A9A1 /* FrameStreamClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A31E5D34E71A002D067A9A1 /* FrameStreamClient.swift */; };
+		5F5271874376439C4C086547 /* vocab.json in Resources */ = {isa = PBXBuildFile; fileRef = EDBC9230DC06742FDFAD4BDB /* vocab.json */; };
+		8613C4B76120DD27260946E7 /* yamnet_class_map.csv in Resources */ = {isa = PBXBuildFile; fileRef = C8ED6FD94AA56CE1F63B6A90 /* yamnet_class_map.csv */; };
 		90BF0831F1F66CB8224715EE /* ZeticMLInferenceEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E1117D9B602275E792AE453 /* ZeticMLInferenceEngine.swift */; };
 		99C79FB9FA0A3D06FB4CB824 /* ResponderApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D5B06802ADF7806415125CF /* ResponderApp.swift */; };
 		A34BE5C1839D2CFBD243991F /* AudioMelSpectrogram.swift in Sources */ = {isa = PBXBuildFile; fileRef = 024BE9A998734D6C8C4C3938 /* AudioMelSpectrogram.swift */; };
 		AB950A68BBF7DC5C146AE0DA /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D2D992AB356D3AEA5063927 /* ContentView.swift */; };
 		B4EE40B2F4FAE0B0AEF62FCC /* ResponderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1E0475A5F2F14AF06DAA096 /* ResponderTests.swift */; };
+		B5A3FC8EC259FA653F810C2B /* ZeticMLange in Frameworks */ = {isa = PBXBuildFile; productRef = 6659DD6186F39F9B64B14679 /* ZeticMLange */; };
+		BFD2FD4B6A05080DD270A986 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 8A927D72CB2760E423CB6844 /* WebRTC */; };
+		C501317F6CB9BEEB5BF248CF /* FrameStreamClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEE1E03B8495CE228FEE5F21 /* FrameStreamClient.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -35,16 +39,19 @@
 		024BE9A998734D6C8C4C3938 /* AudioMelSpectrogram.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioMelSpectrogram.swift; sourceTree = "<group>"; };
 		1D2D992AB356D3AEA5063927 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		1FA8EA705EB2DB83DBCAB6B5 /* ResponderTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ResponderTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		2A9F31B12A91B00100000002 /* yamnet_class_map.csv */ = {isa = PBXFileReference; lastKnownFileType = text; path = yamnet_class_map.csv; sourceTree = "<group>"; };
 		2C0D0842D28810A97AC28A18 /* CameraCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCaptureService.swift; sourceTree = "<group>"; };
 		3D5B06802ADF7806415125CF /* ResponderApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResponderApp.swift; sourceTree = "<group>"; };
 		3DE726B899AF070DC908A09C /* CameraPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreviewView.swift; sourceTree = "<group>"; };
-		7A31E5D34E71A002D067A9A1 /* FrameStreamClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameStreamClient.swift; sourceTree = "<group>"; };
+		763FC5476E0D86B2AAD362A7 /* OnDeviceMemoryIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceMemoryIndex.swift; sourceTree = "<group>"; };
 		91E3D321598AD9D71430CC04 /* Responder.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Responder.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		95D3AB09779E04DCD25C5C80 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		9E1117D9B602275E792AE453 /* ZeticMLInferenceEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZeticMLInferenceEngine.swift; sourceTree = "<group>"; };
+		C8ED6FD94AA56CE1F63B6A90 /* yamnet_class_map.csv */ = {isa = PBXFileReference; lastKnownFileType = text; path = yamnet_class_map.csv; sourceTree = "<group>"; };
+		DEE1E03B8495CE228FEE5F21 /* FrameStreamClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameStreamClient.swift; sourceTree = "<group>"; };
 		E1E0475A5F2F14AF06DAA096 /* ResponderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResponderTests.swift; sourceTree = "<group>"; };
 		E7B504230775C7BD924DF100 /* InferencePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InferencePipeline.swift; sourceTree = "<group>"; };
+		EDBC9230DC06742FDFAD4BDB /* vocab.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = vocab.json; sourceTree = "<group>"; };
+		F5911D28BA386A424D6CE6B7 /* ZeticMemoryAnswerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZeticMemoryAnswerService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -52,14 +59,24 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				1EE19E6F1033CF9C9DEFCB06 /* ZeticMLange in Frameworks */,
-				A1B2C3D4E5F60718293A4B5C /* WebRTC in Frameworks */,
+				1EE19E6F1033CF9C9DEFCB06 /* SQLiteVec in Frameworks */,
+				B5A3FC8EC259FA653F810C2B /* ZeticMLange in Frameworks */,
+				BFD2FD4B6A05080DD270A986 /* WebRTC in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		2A84E7B318EB34842E51AF75 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				EDBC9230DC06742FDFAD4BDB /* vocab.json */,
+				C8ED6FD94AA56CE1F63B6A90 /* yamnet_class_map.csv */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 		5CB9999DD262077837741DBE = {
 			isa = PBXGroup;
 			children = (
@@ -93,22 +110,16 @@
 				2C0D0842D28810A97AC28A18 /* CameraCaptureService.swift */,
 				3DE726B899AF070DC908A09C /* CameraPreviewView.swift */,
 				1D2D992AB356D3AEA5063927 /* ContentView.swift */,
-				7A31E5D34E71A002D067A9A1 /* FrameStreamClient.swift */,
+				DEE1E03B8495CE228FEE5F21 /* FrameStreamClient.swift */,
 				E7B504230775C7BD924DF100 /* InferencePipeline.swift */,
 				95D3AB09779E04DCD25C5C80 /* Info.plist */,
-				2A9F31B12A91B00100000003 /* Resources */,
+				763FC5476E0D86B2AAD362A7 /* OnDeviceMemoryIndex.swift */,
 				3D5B06802ADF7806415125CF /* ResponderApp.swift */,
+				F5911D28BA386A424D6CE6B7 /* ZeticMemoryAnswerService.swift */,
 				9E1117D9B602275E792AE453 /* ZeticMLInferenceEngine.swift */,
+				2A84E7B318EB34842E51AF75 /* Resources */,
 			);
 			path = Responder;
-			sourceTree = "<group>";
-		};
-		2A9F31B12A91B00100000003 /* Resources */ = {
-			isa = PBXGroup;
-			children = (
-				2A9F31B12A91B00100000002 /* yamnet_class_map.csv */,
-			);
-			path = Resources;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -137,8 +148,8 @@
 			buildConfigurationList = 508F9C35F853AD0BF882FD5C /* Build configuration list for PBXNativeTarget "Responder" */;
 			buildPhases = (
 				244A01FDF051F88B6554071A /* Sources */,
+				F4ABDC56AAAF621B0AB60934 /* Resources */,
 				F953B908EF074768E15B81E2 /* Frameworks */,
-				2A9F31B12A91B00100000004 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -146,8 +157,9 @@
 			);
 			name = Responder;
 			packageProductDependencies = (
+				AF86C9479BC1D053D85461EF /* SQLiteVec */,
 				6659DD6186F39F9B64B14679 /* ZeticMLange */,
-				A1B2C3D4E5F60718293A4B5D /* WebRTC */,
+				8A927D72CB2760E423CB6844 /* WebRTC */,
 			);
 			productName = Responder;
 			productReference = 91E3D321598AD9D71430CC04 /* Responder.app */;
@@ -172,8 +184,9 @@
 			mainGroup = 5CB9999DD262077837741DBE;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				25C6F30557C45A622E37E079 /* XCRemoteSwiftPackageReference "SQLiteVec" */,
+				FA9A0042CB199189CCDB3D38 /* XCRemoteSwiftPackageReference "WebRTC" */,
 				C8D17F6D72F27BA345C58260 /* XCRemoteSwiftPackageReference "ZeticMLangeiOS" */,
-				A1B2C3D4E5F60718293A4B5E /* XCRemoteSwiftPackageReference "WebRTC" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B41E3B3987C73BAE4F765872 /* Products */;
@@ -187,11 +200,12 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		2A9F31B12A91B00100000004 /* Resources */ = {
+		F4ABDC56AAAF621B0AB60934 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				2A9F31B12A91B00100000001 /* yamnet_class_map.csv in Resources */,
+				5F5271874376439C4C086547 /* vocab.json in Resources */,
+				8613C4B76120DD27260946E7 /* yamnet_class_map.csv in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -206,10 +220,12 @@
 				5EE651B17EBAD02035CAD1CD /* CameraCaptureService.swift in Sources */,
 				0C46FA4012DE074A886D5FCC /* CameraPreviewView.swift in Sources */,
 				AB950A68BBF7DC5C146AE0DA /* ContentView.swift in Sources */,
-				7A31E5D44E71A002D067A9A1 /* FrameStreamClient.swift in Sources */,
+				C501317F6CB9BEEB5BF248CF /* FrameStreamClient.swift in Sources */,
 				4D064C8B26EA22E4F1525599 /* InferencePipeline.swift in Sources */,
+				0003FE7DC02D2214B664D808 /* OnDeviceMemoryIndex.swift in Sources */,
 				99C79FB9FA0A3D06FB4CB824 /* ResponderApp.swift in Sources */,
 				90BF0831F1F66CB8224715EE /* ZeticMLInferenceEngine.swift in Sources */,
+				485ED0C90402FD145AC54816 /* ZeticMemoryAnswerService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -466,12 +482,12 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		A1B2C3D4E5F60718293A4B5E /* XCRemoteSwiftPackageReference "WebRTC" */ = {
+		25C6F30557C45A622E37E079 /* XCRemoteSwiftPackageReference "SQLiteVec" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/stasel/WebRTC.git";
+			repositoryURL = "https://github.com/jkrukowski/SQLiteVec";
 			requirement = {
-				branch = latest;
-				kind = branch;
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.0.9;
 			};
 		};
 		C8D17F6D72F27BA345C58260 /* XCRemoteSwiftPackageReference "ZeticMLangeiOS" */ = {
@@ -479,21 +495,34 @@
 			repositoryURL = "https://github.com/zetic-ai/ZeticMLangeiOS.git";
 			requirement = {
 				kind = exactVersion;
-				version = "1.7.0-beta.1";
+				version = "1.6.0";
+			};
+		};
+		FA9A0042CB199189CCDB3D38 /* XCRemoteSwiftPackageReference "WebRTC" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stasel/WebRTC.git";
+			requirement = {
+				branch = latest;
+				kind = branch;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		A1B2C3D4E5F60718293A4B5D /* WebRTC */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A1B2C3D4E5F60718293A4B5E /* XCRemoteSwiftPackageReference "WebRTC" */;
-			productName = WebRTC;
-		};
 		6659DD6186F39F9B64B14679 /* ZeticMLange */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = C8D17F6D72F27BA345C58260 /* XCRemoteSwiftPackageReference "ZeticMLangeiOS" */;
 			productName = ZeticMLange;
+		};
+		8A927D72CB2760E423CB6844 /* WebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FA9A0042CB199189CCDB3D38 /* XCRemoteSwiftPackageReference "WebRTC" */;
+			productName = WebRTC;
+		};
+		AF86C9479BC1D053D85461EF /* SQLiteVec */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 25C6F30557C45A622E37E079 /* XCRemoteSwiftPackageReference "SQLiteVec" */;
+			productName = SQLiteVec;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
