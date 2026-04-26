@@ -1,0 +1,8 @@
+# Python dependencies for the scripts/ pipeline.
+# All other deps used by the scripts (urllib, json, struct, subprocess, etc.)
+# are part of the stdlib. External binaries also required on PATH:
+#   - colmap        (sparse reconstruction)
+#   - ffmpeg        (frame extraction)
+#   - ffprobe       (duration probe for the OpenAI indexer)
+
+cloudinary>=1.40,<2
