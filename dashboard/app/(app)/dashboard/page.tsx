@@ -498,6 +498,7 @@ type CloudinaryFootage = {
   bytes: number;
   durationSec: number | null;
   createdAt: string | null;
+  source?: "local" | "cloudinary";
 };
 
 type FeedSource =
@@ -517,18 +518,31 @@ function LandscapeCameraFeed() {
   const userObjectUrlRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Resolve the default feed: prefer the local mp4, fall back to cloudinary
-  // pointer JSON. User picks below override this. The default video also
-  // becomes the initial SelectedVideoContext target so the splat panel
-  // shows its sparse cloud out of the box.
+  // Resolve the default feed. Order: newest file under assets/output/input
+  // (served by /api/local-video), then the bundled /clouds/video.mp4,
+  // then the cloudinary pointer JSON. User picks below override this.
   useEffect(() => {
     let cancelled = false;
-    const localUrl = "/clouds/video.mp4";
     (async () => {
       try {
-        const head = await fetch(localUrl, { method: "HEAD", cache: "no-store" });
+        const res = await fetch("/api/footage", { cache: "no-store" });
+        if (res.ok) {
+          const payload = (await res.json()) as { videos?: CloudinaryFootage[] };
+          const localPick = (payload.videos ?? []).find((v) => v.source === "local");
+          if (!cancelled && localPick) {
+            setFeed({ kind: "local", src: localPick.url });
+            return;
+          }
+        }
+      } catch {
+        /* fall through to bundled demo */
+      }
+
+      const bundled = "/clouds/video.mp4";
+      try {
+        const head = await fetch(bundled, { method: "HEAD", cache: "no-store" });
         if (!cancelled && head.ok) {
-          setFeed({ kind: "local", src: localUrl });
+          setFeed({ kind: "local", src: bundled });
           return;
         }
       } catch {
@@ -686,7 +700,7 @@ function LandscapeCameraFeed() {
           <div className="absolute right-0 mt-2 w-[280px] overflow-hidden rounded-[14px] border border-[var(--primary)] bg-white/96 shadow-[0_18px_48px_rgba(15,15,15,0.18)] backdrop-blur">
             <div className="border-b border-[var(--primary)]/40 px-3 py-2">
               <p className="text-[10px] font-bold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
-                Cloudinary library
+                Footage library · local first
               </p>
             </div>
             <div className="max-h-[220px] overflow-y-auto">
@@ -700,8 +714,13 @@ function LandscapeCameraFeed() {
                     key={v.id}
                     type="button"
                     onClick={() => {
-                      setFeed({ kind: "cloudinary", src: v.url, label: v.name });
-                      setSelected({ videoId: publicIdToVideoId(v.id), source: "cloudinary" });
+                      if (v.source === "local") {
+                        setFeed({ kind: "local", src: v.url });
+                        setSelected({ videoId: publicIdToVideoId(v.id), source: "local" });
+                      } else {
+                        setFeed({ kind: "cloudinary", src: v.url, label: v.name });
+                        setSelected({ videoId: publicIdToVideoId(v.id), source: "cloudinary" });
+                      }
                       setPickerOpen(false);
                     }}
                     className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition hover:bg-[var(--primary)]/8"

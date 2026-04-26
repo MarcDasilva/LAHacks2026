@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readFileSync } from "fs";
+import { readFileSync, readdirSync, statSync } from "fs";
 import path from "path";
 import { v2 as cloudinary } from "cloudinary";
 
@@ -63,14 +63,61 @@ type CloudinaryVideo = {
   height?: number;
 };
 
+type FootageEntry = {
+  id: string;
+  name: string;
+  url: string;
+  bytes: number;
+  durationSec: number | null;
+  createdAt: string | null;
+  source: "local" | "cloudinary";
+};
+
+const VIDEO_EXTS = new Set([".mp4", ".m4v", ".mov", ".webm", ".mkv"]);
+
+function listLocalInputs(): FootageEntry[] {
+  const dir = path.resolve(process.cwd(), "..", "assets", "output", "input");
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const out: FootageEntry[] = [];
+  for (const name of names) {
+    if (!VIDEO_EXTS.has(path.extname(name).toLowerCase())) continue;
+    const full = path.join(dir, name);
+    let stat;
+    try {
+      stat = statSync(full);
+    } catch {
+      continue;
+    }
+    if (!stat.isFile()) continue;
+    out.push({
+      id: `local/${name}`,
+      name,
+      url: `/api/local-video/${encodeURIComponent(name)}`,
+      bytes: stat.size,
+      durationSec: null,
+      createdAt: stat.mtime.toISOString(),
+      source: "local",
+    });
+  }
+  out.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+  return out;
+}
+
 export async function GET() {
+  const local = listLocalInputs();
+
   if (!configureCloudinary()) {
-    return NextResponse.json(
-      { videos: [], error: "CLOUDINARY_URL not configured" },
-      { status: 200 }
-    );
+    // Cloudinary is the backup; if it's not configured, just serve local.
+    return NextResponse.json({ videos: local });
   }
 
+  let cloudVideos: FootageEntry[] = [];
+  let cloudError: string | null = null;
   try {
     const result = (await cloudinary.api.resources({
       resource_type: "video",
@@ -79,18 +126,28 @@ export async function GET() {
       prefix: "impulse/",
     })) as { resources?: CloudinaryVideo[] };
 
-    const videos = (result.resources ?? []).map((r) => ({
+    cloudVideos = (result.resources ?? []).map<FootageEntry>((r) => ({
       id: r.public_id,
       name: r.public_id.split("/").pop() ?? r.public_id,
       url: r.secure_url,
       bytes: r.bytes ?? 0,
       durationSec: r.duration ?? null,
       createdAt: r.created_at ?? null,
+      source: "cloudinary",
     }));
-    videos.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
-    return NextResponse.json({ videos });
+    cloudVideos.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
   } catch (e) {
-    const message = e instanceof Error ? e.message : "cloudinary error";
-    return NextResponse.json({ videos: [], error: message }, { status: 500 });
+    cloudError = e instanceof Error ? e.message : "cloudinary error";
   }
+
+  // Local entries come first; Cloudinary entries are deduplicated against
+  // local matches by basename so we don't show the same video twice.
+  const localBaseNames = new Set(local.map((v) => v.name.replace(/\.[^.]+$/, "")));
+  const dedupedCloud = cloudVideos.filter((v) => !localBaseNames.has(v.name));
+  const videos = [...local, ...dedupedCloud];
+
+  return NextResponse.json({
+    videos,
+    ...(cloudError ? { error: cloudError } : {}),
+  });
 }
