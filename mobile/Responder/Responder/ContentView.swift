@@ -3,6 +3,9 @@ import SwiftUI
 
 @MainActor
 final class CameraViewModel: NSObject, ObservableObject {
+    private static let sttPlaceholder = "Waiting for transcript..."
+    private static let sttOnHoldMessage = "STT is currently on hold."
+
     @Published private(set) var capturedFrameCount = 0
     @Published private(set) var capturedAudioBufferCount = 0
     @Published private(set) var lastFrameTimestamp: Date?
@@ -26,6 +29,7 @@ final class CameraViewModel: NSObject, ObservableObject {
     @Published private(set) var frameStreamStatus = "idle"
     @Published private(set) var streamedFrameCount = 0
     private var lastStatusUpdateAudioBufferCount = 0
+    private var transcriptLines: [String] = []
 
     let captureService = CameraCaptureService()
     let frameStreamSettings = FrameStreamSettings.fromEnvironment()
@@ -45,7 +49,7 @@ final class CameraViewModel: NSObject, ObservableObject {
         self.sttOnHold = inference.sttOnHold
         self.yamnetOnHold = inference.yamnetOnHold
         self.yoloOnHold = inference.yoloOnHold
-        self.latestTranscript = inference.sttOnHold ? "STT is currently on hold." : "Waiting for transcript..."
+        self.latestTranscript = inference.sttOnHold ? Self.sttOnHoldMessage : Self.sttPlaceholder
         self.latestYamnetOutput = inference.yamnetOnHold ? "YAMNet is currently on hold." : "Waiting for YAMNet output..."
         self.latestDetections = inference.yoloOnHold ? "YOLO is currently on hold." : "Waiting for detections..."
         self.yoloPipeline = ChunkedTranscriptPipeline(
@@ -77,17 +81,34 @@ final class CameraViewModel: NSObject, ObservableObject {
             audioSamplesPerChunk: inference.audioSamplesPerChunk,
             sessionID: inference.sessionID,
             statusPrefix: "STT",
+            hopSamples: 24_000,
+            minimumWindowSamples: 48_000,
             onTranscript: { [weak self] payload in
                 Task { @MainActor in
                     let text = payload.output.text.trimmingCharacters(in: .whitespacesAndNewlines)
                     print("[Responder][STT] Transcript chunk=\(payload.chunk.chunkID) text=\(text)")
-                    self?.latestTranscript = text.isEmpty ? "[empty transcript]" : text
-                    self?.sttError = nil
-                    self?.lastInferenceError = self?.yoloError
-                    if self?.speakTranscript == true,
+                    guard let self else { return }
+                    let displayText = self.appendTranscriptLine(text)
+                    self.latestTranscript = displayText
+                    self.sttError = nil
+                    self.lastInferenceError = self.yoloError ?? self.yamnetError
+                    let frontendPayload = TranscriptChunk(
+                        sessionID: payload.sessionID,
+                        emittedAt: payload.emittedAt,
+                        chunk: payload.chunk,
+                        model: payload.model,
+                        output: TranscriptChunk.TranscriptOutput(
+                            text: displayText,
+                            confidence: payload.output.confidence,
+                            tensorCount: payload.output.tensorCount
+                        )
+                    )
+                    self.frameStreamClient.sendModelOutput(kind: "stt", payload: frontendPayload)
+                    if self.speakTranscript == true,
                        text != "[stt_unavailable] Decoder returned no tokens.",
-                       text != "[stt_unavailable] Encoder returned no embeddings." {
-                        self?.speechPlayer.speak(text)
+                       text != "[stt_unavailable] Encoder returned no embeddings.",
+                       text != "[stt_unavailable] Decoder produced no transcription." {
+                        self.speechPlayer.speak(text)
                     }
                 }
             },
@@ -163,7 +184,7 @@ final class CameraViewModel: NSObject, ObservableObject {
             }
             permissionDenied = false
             if captureService.audioAuthorizationStatus != .authorized {
-                latestTranscript = "[stt_unavailable] Microphone permission not granted."
+                resetTranscriptDisplay("[stt_unavailable] Microphone permission not granted.")
                 sttPipelineStatus = "No microphone permission"
                 latestYamnetOutput = "[yamnet_unavailable] Microphone permission not granted."
                 yamnetPipelineStatus = "No microphone permission"
@@ -190,11 +211,11 @@ final class CameraViewModel: NSObject, ObservableObject {
         sttOnHold = !enabled
         audioPipeline.setPaused(sttOnHold)
         if sttOnHold {
-            latestTranscript = "STT is currently on hold."
+            resetTranscriptDisplay(Self.sttOnHoldMessage)
             sttPipelineStatus = "Paused"
             print("[Responder][STT] Paused")
-        } else if latestTranscript == "STT is currently on hold." {
-            latestTranscript = "Waiting for transcript..."
+        } else if latestTranscript == Self.sttOnHoldMessage {
+            resetTranscriptDisplay(Self.sttPlaceholder)
             sttPipelineStatus = "Listening..."
             print("[Responder][STT] Resumed and listening")
             startSTTWatchdog()
@@ -231,31 +252,58 @@ final class CameraViewModel: NSObject, ObservableObject {
             try? await Task.sleep(nanoseconds: 4_000_000_000)
             guard !self.sttOnHold else { return }
             if self.captureService.audioAuthorizationStatus != .authorized {
-                self.latestTranscript = "[stt_unavailable] Microphone permission not granted."
+                self.resetTranscriptDisplay("[stt_unavailable] Microphone permission not granted.")
                 self.sttPipelineStatus = "No microphone permission"
                 print("[Responder][STT][WATCHDOG] No mic permission")
                 return
             }
             if let setupError = self.captureService.audioSetupErrorMessage {
-                self.latestTranscript = "[stt_unavailable] \(setupError)"
+                self.resetTranscriptDisplay("[stt_unavailable] \(setupError)")
                 self.sttPipelineStatus = "Audio setup failed"
                 print("[Responder][STT][WATCHDOG] Audio setup error: \(setupError)")
                 return
             }
             if !self.captureService.isAudioCaptureConfigured {
-                self.latestTranscript = "[stt_unavailable] Audio capture pipeline is not configured."
+                self.resetTranscriptDisplay("[stt_unavailable] Audio capture pipeline is not configured.")
                 self.sttPipelineStatus = "Audio capture not configured"
                 print("[Responder][STT][WATCHDOG] Audio capture not configured")
                 return
             }
             if self.capturedAudioBufferCount == 0 {
-                self.latestTranscript = "[stt_unavailable] No microphone audio buffers received after start."
+                self.resetTranscriptDisplay("[stt_unavailable] No microphone audio buffers received after start.")
                 self.sttPipelineStatus = "No audio buffers"
                 print("[Responder][STT][WATCHDOG] No audio buffers received")
             } else {
                 print("[Responder][STT][WATCHDOG] Audio buffers seen count=\(self.capturedAudioBufferCount)")
             }
         }
+    }
+
+    private func appendTranscriptLine(_ text: String) -> String {
+        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return transcriptLines.isEmpty ? "[empty transcript]" : transcriptLines.joined(separator: "\n")
+        }
+
+        if normalized.hasPrefix("[stt_unavailable]") {
+            resetTranscriptDisplay(normalized)
+            return latestTranscript
+        }
+
+        if transcriptLines.last == normalized {
+            return transcriptLines.joined(separator: "\n")
+        }
+
+        if transcriptLines.count >= 3 {
+            transcriptLines.removeAll(keepingCapacity: true)
+        }
+        transcriptLines.append(normalized)
+        return transcriptLines.joined(separator: "\n")
+    }
+
+    private func resetTranscriptDisplay(_ text: String) {
+        transcriptLines.removeAll(keepingCapacity: true)
+        latestTranscript = text
     }
 }
 
@@ -435,7 +483,7 @@ struct ContentView: View {
 
                 VStack(spacing: 12) {
                     pipelineCard(
-                        title: "STT Pipeline (Qwen)",
+                        title: "STT Pipeline",
                         subtitle: "Model: \(viewModel.sttModelName)",
                         status: sttStatusLabel,
                         statusColor: sttStatusColor,

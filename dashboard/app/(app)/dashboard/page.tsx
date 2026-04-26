@@ -16,6 +16,7 @@ type RoomSummary = {
   modelOutputs?: {
     yolo?: ModelOutputPayload | null;
     yamnet?: ModelOutputPayload | null;
+    stt?: ModelOutputPayload | null;
   };
   updatedAt: string;
 };
@@ -228,6 +229,7 @@ export default function Dashboard() {
 function SelectedCameraPanel({ room }: { room: RoomSummary }) {
   const yoloPayload = room.modelOutputs?.yolo ?? null;
   const yamnetPayload = room.modelOutputs?.yamnet ?? null;
+  const sttPayload = room.modelOutputs?.stt ?? null;
 
   return (
     <div className="min-h-[min(76vh,760px)] min-w-0 overflow-hidden rounded-[16px] border border-[var(--foreground)]/28 bg-white/22 shadow-[0_1px_0_rgba(255,255,255,0.22)_inset,0_18px_48px_rgba(15,15,15,0.08)] transition-[width,transform,box-shadow] duration-300 ease-out lg:w-[min(50vw,760px)] lg:min-w-[min(50vw,760px)]">
@@ -264,9 +266,10 @@ function SelectedCameraPanel({ room }: { room: RoomSummary }) {
           </div>
         </div>
 
-        <div className="grid gap-3 px-3 py-3 lg:grid-cols-2">
+        <div className="grid gap-3 px-3 py-3 lg:grid-cols-3">
           <ModelOutputSection kind="YOLO" payload={yoloPayload} emptyLabel="Waiting for detections from the phone." />
           <ModelOutputSection kind="YAMNet" payload={yamnetPayload} emptyLabel="Waiting for audio classification from the phone." />
+          <ModelOutputSection kind="STT" payload={sttPayload} emptyLabel="Waiting for transcript text from the phone." />
         </div>
       </div>
     </div>
@@ -278,15 +281,16 @@ function ModelOutputSection({
   payload,
   emptyLabel,
 }: {
-  kind: "YOLO" | "YAMNet";
+  kind: "YOLO" | "YAMNet" | "STT";
   payload: ModelOutputPayload | null;
   emptyLabel: string;
 }) {
   const parsedEntries = useMemo(() => parseOutputEntries(payload?.output.text ?? ""), [payload?.output.text]);
   const emittedAtLabel = payload?.emittedAt ? formatTimestamp(payload.emittedAt) : null;
-  const heading = kind === "YOLO" ? "Vision events" : "Audio events";
+  const heading =
+    kind === "YOLO" ? "Vision events" : kind === "YAMNet" ? "Audio events" : "Speech transcript";
   const summaryLabel =
-    parsedEntries.length > 0
+    kind !== "STT" && parsedEntries.length > 0
       ? parsedEntries.length === 1
         ? `1 signal`
         : `${parsedEntries.length} signals`
