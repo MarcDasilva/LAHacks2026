@@ -9,15 +9,22 @@ in-process import — the lingbot-map repo evolves quickly and we want to
 stay decoupled from any specific Python API version. If/when we need
 per-frame streaming inference (vs. per-session), swap this for a direct
 import of lingbot_map's model class.
+
+The runner does not host viser itself — it lives in the ingest_server
+process. After each session reconstructs, the runner POSTs to the local
+ingest server's /sessions/{id}/replay endpoint to push points into the
+viser scene. Single source of truth for scene state.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
 import sys
 import time
 from pathlib import Path
+from urllib import error as urlerror, request as urlrequest
 
 from . import config, sessions
 
@@ -90,6 +97,23 @@ def _claim_idle_sessions() -> None:
             sessions.save(s)
 
 
+def _trigger_replay(session_id: str) -> None:
+    """POST to the local ingest server to push this session's points into the
+    viser scene running in that process. Best-effort; logs on failure but
+    never raises.
+    """
+    url = f"http://127.0.0.1:{config.INGEST_PORT}/sessions/{session_id}/replay"
+    req = urlrequest.Request(url, method="POST")
+    try:
+        with urlrequest.urlopen(req, timeout=5) as resp:
+            payload = json.loads(resp.read().decode("utf-8") or "{}")
+            log.info("session %s: replay queued — %s", session_id, payload)
+    except urlerror.HTTPError as e:
+        log.warning("session %s: replay HTTP %s", session_id, e.code)
+    except Exception:
+        log.exception("session %s: replay request failed (non-fatal)", session_id)
+
+
 def _run_one(session_id: str) -> None:
     state = sessions.load(session_id)
     if state is None or state.status != "queued":
@@ -133,6 +157,11 @@ def _run_one(session_id: str) -> None:
     state.status = "done"
     sessions.save(state)
     log.info("session %s: done — outputs in %s", session_id, output_dir)
+
+    # Push to viser in the ingest_server process. Done after marking 'done'
+    # so the dashboard's status badge updates promptly even if the replay
+    # call is slow or the ingest server isn't reachable.
+    _trigger_replay(session_id)
 
 
 def main() -> None:

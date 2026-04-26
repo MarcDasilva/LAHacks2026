@@ -10,14 +10,19 @@ watches the filesystem.
 """
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
+import tempfile
+import threading
 import time
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
-from . import cloud_export, config, sessions
+from . import cloud_export, config, sessions, viser_server
 
 app = FastAPI(title="lingbot_bridge ingest")
 
@@ -39,6 +44,10 @@ def _validate_session_id(session_id: str) -> None:
 @app.on_event("startup")
 def _startup() -> None:
     config.ensure_dirs()
+    # viser lives in this process — the inference runner pushes points by
+    # POSTing to /sessions/{id}/replay rather than holding its own server.
+    # Keeps a single source of truth for scene state.
+    viser_server.start()
 
 
 @app.get("/health")
@@ -80,6 +89,56 @@ async def upload_frame(session_id: str, file: UploadFile = File(...)) -> dict:
     sessions.save(state)
 
     return {"ok": True, "path": str(path.relative_to(config.ROOT)), "seq": seq}
+
+
+@app.post("/sessions/{session_id}/video")
+async def upload_video(
+    session_id: str,
+    file: UploadFile = File(...),
+    fps: float = 5.0,
+) -> dict:
+    """One-shot video upload: streams an MP4 to disk, ffmpeg-decodes into
+    `frames/<sid>/00000000.jpg…` so the rest of the pipeline (which only
+    knows about per-frame uploads) doesn't need to change. Auto-marks the
+    session 'queued' since one video == one capture.
+    """
+    _validate_session_id(session_id)
+    state = sessions.get_or_create(session_id)
+    if state.status != "recording":
+        raise HTTPException(409, f"session is {state.status}, not accepting video")
+
+    frame_dir = config.session_frames_dir(session_id)
+    frame_dir.mkdir(parents=True, exist_ok=True)
+    seq_start = state.frames
+
+    # Stream to a temp file rather than reading the whole MP4 into memory.
+    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = tmp.name
+    try:
+        cmd = [
+            "ffmpeg", "-y", "-i", tmp_path,
+            "-vf", f"fps={fps}",
+            "-qscale:v", "2",
+            "-an",
+            "-start_number", str(seq_start),
+            str(frame_dir / "%08d.jpg"),
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise HTTPException(500, f"ffmpeg failed: {proc.stderr[-500:]}")
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+    state.frames = len(list(frame_dir.glob("*.jpg")))
+    state.last_frame_at = time.time()
+    state.status = "queued"
+    state.closed_at = time.time()
+    sessions.save(state)
+    return {"ok": True, "frames": state.frames, "status": state.status}
 
 
 @app.post("/sessions/{session_id}/close")
@@ -137,4 +196,77 @@ def get_cloud(
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))
 
+    return Response(content=blob, media_type="application/octet-stream")
+
+
+_replay_lock = threading.Lock()
+_replay_inflight: set[str] = set()
+
+
+def _do_replay(session_id: str) -> None:
+    try:
+        viser_server.replay_session(
+            session_id, config.session_output_dir(session_id)
+        )
+    except Exception:
+        # log goes to uvicorn's stderr; we don't want a background failure
+        # to mask itself.
+        import logging
+
+        logging.getLogger("ingest_server").exception(
+            "replay failed for session %s", session_id
+        )
+    finally:
+        with _replay_lock:
+            _replay_inflight.discard(session_id)
+
+
+@app.post("/sessions/{session_id}/replay")
+def replay(session_id: str, background: BackgroundTasks) -> dict:
+    """Push an already-reconstructed session's points into the viser scene.
+
+    Idempotent in the sense that re-calling clears the existing per-frame
+    nodes for this session before re-pushing. Replay runs in the background
+    because it can take seconds for large sessions; status is returned
+    immediately.
+    """
+    _validate_session_id(session_id)
+    state = sessions.load(session_id)
+    if state is None:
+        raise HTTPException(404, "no such session")
+    if state.status != "done":
+        raise HTTPException(409, f"session is {state.status}, not done")
+    if not viser_server.is_running():
+        raise HTTPException(503, "viser server not running")
+
+    out_dir = config.session_output_dir(session_id)
+    if not (out_dir / "predictions.pt").exists():
+        raise HTTPException(404, "no predictions.pt for this session")
+
+    with _replay_lock:
+        if session_id in _replay_inflight:
+            return {"ok": True, "queued": False, "reason": "already replaying"}
+        _replay_inflight.add(session_id)
+
+    background.add_task(_do_replay, session_id)
+    return {"ok": True, "queued": True}
+
+
+@app.get("/sessions/{session_id}/frustums")
+def get_frustums(session_id: str) -> Response:
+    """Binary camera-pose blob for rendering frustum pyramids alongside the
+    point cloud. See cloud_export.export_frustums for format.
+    """
+    _validate_session_id(session_id)
+    state = sessions.load(session_id)
+    if state is None:
+        raise HTTPException(404, "no such session")
+    if state.status != "done":
+        raise HTTPException(409, f"session is {state.status}, not done")
+    try:
+        blob = cloud_export.get_or_build_frustums(
+            config.session_output_dir(session_id),
+        )
+    except (FileNotFoundError, ValueError) as e:
+        raise HTTPException(404, str(e))
     return Response(content=blob, media_type="application/octet-stream")

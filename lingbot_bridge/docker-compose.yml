@@ -26,6 +26,7 @@ services:
       LINGBOT_REPO_PATH: /opt/lingbot-map
     ports:
       - "${INGEST_PORT:-8001}:8001"
+      - "${INGEST_VISER_PORT:-8890}:8890"
     volumes:
       - ./frames:/opt/bridge/frames
       - ./outputs:/opt/bridge/outputs
