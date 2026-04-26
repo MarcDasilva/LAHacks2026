@@ -62,6 +62,10 @@ function publicIdToVideoId(publicId: string): string {
 type ManifestRecord = {
   videoId: string;
   videoUrl: string;
+  // Local copy under assets/output/input — preferred source; cloudinary
+  // (videoUrl) is the fallback if the file goes missing.
+  videoLocalUrl?: string;
+  videoLocalPath?: string;
   status: "ready" | "processing" | "failed";
   label?: string;
   lbmpPath?: string;
@@ -92,44 +96,48 @@ async function writeManifest(manifestPath: string, manifest: Manifest): Promise<
 }
 
 export async function POST(req: Request) {
-  if (!configureCloudinary()) {
-    return NextResponse.json(
-      { error: "CLOUDINARY_URL not configured" },
-      { status: 500 }
-    );
-  }
-
   const form = await req.formData();
   const file = form.get("file");
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "missing file field" }, { status: 400 });
   }
 
-  // Persist the upload to a temp file we can hand to both Cloudinary and
-  // the COLMAP subprocess.
+  // Primary persistence: write the upload to assets/output/input/ so the
+  // dashboard, COLMAP, and any future tooling can read it straight off
+  // disk. Cloudinary remains as the backup fetch path.
+  const repoRoot = path.resolve(process.cwd(), "..");
+  const inputDir = path.join(repoRoot, "assets", "output", "input");
+  await mkdirAsync(inputDir, { recursive: true });
+
   const buffer = Buffer.from(await file.arrayBuffer());
   const stamp = `${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
   const safeName = (file.name || "upload.mp4").replace(/[^a-zA-Z0-9._-]/g, "_");
-  const tmpDir = path.join(os.tmpdir(), `impulse_upload_${stamp}`);
-  await mkdirAsync(tmpDir, { recursive: true });
-  const tmpPath = path.join(tmpDir, safeName);
-  await writeFileAsync(tmpPath, buffer);
-
-  // Upload to Cloudinary under impulse/uploads/<stamp>_<basename>.
   const baseName = safeName.replace(/\.[^.]+$/, "");
+  const ext = (safeName.match(/\.[^.]+$/)?.[0] ?? ".mp4").toLowerCase();
+  const persistedName = `${stamp}_${baseName}${ext}`;
+  const persistedPath = path.join(inputDir, persistedName);
+  await writeFileAsync(persistedPath, buffer);
+
+  const videoLocalUrl = `/api/local-video/${encodeURIComponent(persistedName)}`;
+
+  // Cloudinary upload under impulse/uploads/<stamp>_<basename>. We treat
+  // this as a backup mirror — failures here don't block the flow because
+  // the local file is the primary playback source now.
   const cloudinaryPublicId = `impulse/uploads/${stamp}_${baseName}`;
-  let secureUrl: string;
-  try {
-    const result = await cloudinary.uploader.upload(tmpPath, {
-      resource_type: "video",
-      public_id: cloudinaryPublicId,
-      overwrite: true,
-      invalidate: true,
-    });
-    secureUrl = result.secure_url;
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "cloudinary upload failed";
-    return NextResponse.json({ error: message }, { status: 502 });
+  let secureUrl = videoLocalUrl;
+  if (configureCloudinary()) {
+    try {
+      const result = await cloudinary.uploader.upload(persistedPath, {
+        resource_type: "video",
+        public_id: cloudinaryPublicId,
+        overwrite: true,
+        invalidate: true,
+      });
+      secureUrl = result.secure_url;
+    } catch (e) {
+      // Non-fatal: keep the local copy as the only source of truth.
+      console.warn("[upload-video] cloudinary mirror failed:", e instanceof Error ? e.message : e);
+    }
   }
 
   const videoId = publicIdToVideoId(cloudinaryPublicId);
@@ -148,6 +156,8 @@ export async function POST(req: Request) {
   manifest.videos[videoId] = {
     videoId,
     videoUrl: secureUrl,
+    videoLocalUrl,
+    videoLocalPath: persistedPath,
     status: "processing",
     label,
     lbmpPath: `/clouds/splats/${videoId}/sparse.lbmp`,
@@ -197,9 +207,10 @@ export async function POST(req: Request) {
   // process_video.py keeps running and updates the manifest when done.
   // process.cwd() at runtime is the dashboard/ project root; the script
   // lives one level up.
-  const repoRoot = path.resolve(process.cwd(), "..");
   const scriptPath = path.join(repoRoot, "scripts", "process_video.py");
-  const logPath = path.join(tmpDir, "process.log");
+  const logDir = path.join(os.tmpdir(), `impulse_upload_${stamp}`);
+  await mkdirAsync(logDir, { recursive: true });
+  const logPath = path.join(logDir, "process.log");
 
   const fs = await import("fs");
 
@@ -207,7 +218,7 @@ export async function POST(req: Request) {
     "python3",
     [
       scriptPath,
-      "--video", tmpPath,
+      "--video", persistedPath,
       "--video-id", videoId,
       "--video-url", secureUrl,
       "--label", label,
@@ -233,7 +244,7 @@ export async function POST(req: Request) {
   // Kick off semantic indexing in parallel with COLMAP. The indexer only
   // needs the Cloudinary URL + OpenAI key, so it doesn't fight the splat
   // pipeline for resources. Targets just this video by public_id.
-  const indexLogPath = path.join(tmpDir, "index.log");
+  const indexLogPath = path.join(logDir, "index.log");
   const indexerPath = path.join(repoRoot, "scripts", "index_videos.py");
   const indexChild = spawn(
     "python3",
@@ -257,6 +268,7 @@ export async function POST(req: Request) {
   return NextResponse.json({
     videoId,
     videoUrl: secureUrl,
+    videoLocalUrl,
     status: "processing",
     label,
     logPath,
