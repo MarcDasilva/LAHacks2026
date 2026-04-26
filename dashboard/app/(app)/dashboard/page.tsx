@@ -13,6 +13,7 @@ import {
 import { useRouter, useSearchParams } from "next/navigation";
 import CameraFrameViewer from "@/app/components/CameraFrameViewer";
 import { PointCloudViewer } from "@/app/components/ui/PointCloudViewer";
+import { GaussianSplatViewer } from "@/app/components/ui/GaussianSplatViewer";
 import { Activity, ChevronRight } from "lucide-react";
 
 type RoomSummary = {
@@ -74,6 +75,10 @@ type SplatRecord = {
   label?: string;
   points?: number;
   error?: string;
+  splatStatus?: "pending" | "training" | "ready" | "failed";
+  splatJobId?: string;
+  splatPath?: string;
+  splatError?: string;
 };
 
 type SplatManifest = {
@@ -224,13 +229,25 @@ export default function Dashboard() {
   });
 
   const refreshManifest = useCallback(async () => {
+    // /api/splat-poll drains any finished Modal jobs (writing scene.splat to
+    // disk + updating the manifest) and returns the manifest in the same
+    // request, so polling does both at once.
     try {
-      const res = await fetch("/clouds/splats/manifest.json", { cache: "no-store" });
-      if (!res.ok) throw new Error(`manifest ${res.status}`);
+      const res = await fetch("/api/splat-poll", { cache: "no-store" });
+      if (!res.ok) throw new Error(`splat-poll ${res.status}`);
       const payload = (await res.json()) as SplatManifest;
       setManifest(payload);
     } catch {
-      setManifest({ version: 1, videos: {} });
+      // Fallback to the static manifest if the poll route isn't available
+      // (e.g., MODAL_SPLAT_URL not configured yet).
+      try {
+        const res = await fetch("/clouds/splats/manifest.json", { cache: "no-store" });
+        if (!res.ok) throw new Error(`manifest ${res.status}`);
+        const payload = (await res.json()) as SplatManifest;
+        setManifest(payload);
+      } catch {
+        setManifest({ version: 1, videos: {} });
+      }
     }
   }, []);
 
@@ -243,7 +260,10 @@ export default function Dashboard() {
   useEffect(() => {
     if (!manifest) return;
     const anyProcessing = Object.values(manifest.videos).some(
-      (v) => v.status === "processing"
+      (v) =>
+        v.status === "processing" ||
+        v.splatStatus === "pending" ||
+        v.splatStatus === "training"
     );
     if (!anyProcessing) return;
     const id = window.setInterval(refreshManifest, 4000);
@@ -304,35 +324,30 @@ export default function Dashboard() {
           <div className="mt-3 flex min-h-0 flex-1 flex-col gap-3">
             <section className="pointer-events-auto min-h-0 overflow-auto">
               <div className="flex min-h-full flex-col gap-3 lg:flex-row">
-                {activeRooms.length > 0 ? (
-                  selectedRoom ? <SelectedCameraPanel room={selectedRoom} /> : null
-                ) : (
-                  <EmptyCameraPreview
-                    title={fetchState === "error" ? "Signal relay unavailable" : "No connected cameras"}
-                    description={
-                      fetchState === "error"
-                        ? "The dashboard could not reach the frame relay server."
-                        : "As soon as a building connection has live camera senders, they will appear here."
-                    }
-                  />
-                )}
+                <div className="flex min-w-0 flex-col gap-3 lg:w-1/2 lg:flex-1">
+                  {activeRooms.length > 0 ? (
+                    selectedRoom ? <SelectedCameraPanel room={selectedRoom} /> : null
+                  ) : (
+                    <EmptyCameraPreview />
+                  )}
 
-                <div className="flex min-w-0 flex-col gap-3 lg:w-[min(34vw,520px)] lg:min-w-[min(34vw,520px)]">
+                  {previewRooms.length > 0 ? (
+                    <div className="flex min-h-0 w-full shrink-0 gap-3 overflow-x-auto lg:overflow-y-auto lg:overflow-x-hidden">
+                      {previewRooms.map((room) => (
+                        <CameraPreviewThumb
+                          key={room.roomId}
+                          room={room}
+                          onSelect={() => setSelectedRoomId(room.roomId)}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="flex min-w-0 flex-col gap-3 lg:w-1/2 lg:flex-1">
                   <SparseSplatPanel />
                   <VideoSearchPanel />
                 </div>
-
-                {previewRooms.length > 0 ? (
-                  <div className="flex min-h-0 w-full shrink-0 gap-3 overflow-x-auto lg:flex-1 lg:flex-col lg:overflow-y-auto lg:overflow-x-hidden">
-                    {previewRooms.map((room) => (
-                      <CameraPreviewThumb
-                        key={room.roomId}
-                        room={room}
-                        onSelect={() => setSelectedRoomId(room.roomId)}
-                      />
-                    ))}
-                  </div>
-                ) : null}
               </div>
             </section>
           </div>
@@ -349,7 +364,7 @@ function SelectedCameraPanel({ room }: { room: RoomSummary }) {
   const sttPayload = room.modelOutputs?.stt ?? null;
 
   return (
-    <div className="min-h-[min(76vh,760px)] min-w-0 overflow-hidden rounded-[16px] border border-[var(--foreground)]/28 bg-white/22 shadow-[0_1px_0_rgba(255,255,255,0.22)_inset,0_18px_48px_rgba(15,15,15,0.08)] transition-[width,transform,box-shadow] duration-300 ease-out lg:w-[min(50vw,760px)] lg:min-w-[min(50vw,760px)]">
+    <div className="flex min-h-[min(78vh,820px)] w-full min-w-0 flex-1 flex-col overflow-hidden rounded-[16px] border border-[var(--foreground)]/28 bg-white/22 shadow-[0_1px_0_rgba(255,255,255,0.22)_inset,0_18px_48px_rgba(15,15,15,0.08)] transition-[width,transform,box-shadow] duration-300 ease-out">
       <div className="flex items-center justify-between border-b border-[var(--border)]/70 px-3 py-2.5">
         <div className="min-w-0">
           <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
@@ -626,7 +641,7 @@ function LandscapeCameraFeed() {
             : "idle";
 
   return (
-    <div ref={containerRef} className="relative aspect-video overflow-hidden border-b border-[var(--primary)]/70 bg-black">
+    <div ref={containerRef} className="relative flex-1 min-h-[420px] overflow-hidden border-b border-[var(--primary)]/70 bg-black">
       {feed ? (
         <video
           key={feed.src}
@@ -734,18 +749,28 @@ function SparseSplatPanel() {
 
   const lbmpUrl = record?.lbmpPath ?? null;
   const pathUrl = record?.pathPath ?? null;
+  // Prefer the Modal-trained Gaussian splat once it's ready. While it's
+  // training we show a loading state (no sparse preview, per design choice).
+  const splatUrl = record?.splatStatus === "ready" ? record.splatPath ?? null : null;
+  const splatStatus = record?.splatStatus;
 
   const statusLabel =
-    status === "ready"
-      ? "ready"
-      : status === "processing"
-        ? "processing…"
-        : status === "failed"
-          ? "failed"
-          : "no splat";
+    splatStatus === "ready"
+      ? "splat ready"
+      : splatStatus === "training" || splatStatus === "pending"
+        ? "training…"
+        : splatStatus === "failed"
+          ? "splat failed"
+          : status === "ready"
+            ? "ready"
+            : status === "processing"
+              ? "processing…"
+              : status === "failed"
+                ? "failed"
+                : "no splat";
 
   return (
-    <div className="min-h-[min(50vh,520px)] min-w-0 overflow-hidden rounded-[16px] border border-[var(--primary)] bg-white/22 shadow-[0_1px_0_rgba(255,255,255,0.22)_inset,0_18px_48px_rgba(15,15,15,0.08)] transition-[width,transform,box-shadow] duration-300 ease-out">
+    <div className="flex min-h-[min(60vh,640px)] min-w-0 flex-1 flex-col overflow-hidden rounded-[16px] border border-[var(--primary)] bg-white/22 shadow-[0_1px_0_rgba(255,255,255,0.22)_inset,0_18px_48px_rgba(15,15,15,0.08)] transition-[width,transform,box-shadow] duration-300 ease-out">
       <div className="flex items-center justify-between border-b border-[var(--primary)]/70 px-3 py-2.5">
         <div className="min-w-0">
           <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
@@ -760,7 +785,25 @@ function SparseSplatPanel() {
 
       <div className="bg-black/8 p-3 transition-[padding] duration-300">
         <div className="relative aspect-video overflow-hidden rounded-[14px] border border-[var(--primary)]/55 bg-black/12 shadow-[0_1px_0_rgba(255,255,255,0.16)_inset] transition-[height] duration-300">
-          {lbmpUrl && status === "ready" ? (
+          {splatUrl ? (
+            <GaussianSplatViewer
+              key={selected?.videoId ?? "none"}
+              url={splatUrl}
+              flipUp
+            />
+          ) : splatStatus === "failed" ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-[linear-gradient(135deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))]">
+              <div className="rounded-[12px] border border-[var(--primary)]/45 bg-black/45 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-white/85">
+                {`Splat failed: ${record?.splatError ?? record?.error ?? "unknown"}`}
+              </div>
+            </div>
+          ) : splatStatus === "pending" || splatStatus === "training" ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-[linear-gradient(135deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))]">
+              <div className="rounded-[12px] border border-[var(--primary)]/45 bg-black/45 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-white/85">
+                Training Gaussian splat… (~5–10 min)
+              </div>
+            </div>
+          ) : lbmpUrl && status === "ready" ? (
             <PointCloudViewer
               key={selected?.videoId ?? "none"}
               url={lbmpUrl}
@@ -1048,10 +1091,10 @@ function formatTimestamp(value: string) {
   return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
 }
 
-function EmptyCameraPreview({ title, description }: { title: string; description: string }) {
+function EmptyCameraPreview() {
   return (
-    <div className="min-h-[420px] w-full max-w-[min(50vw,760px)] pt-2">
-      <div className="overflow-hidden rounded-[16px] border border-[var(--border)]/70 bg-white/14 shadow-[0_1px_0_rgba(255,255,255,0.2)_inset]">
+    <div className="flex min-h-[min(78vh,820px)] w-full flex-1 pt-2">
+      <div className="flex w-full flex-1 flex-col overflow-hidden rounded-[16px] border border-[var(--border)]/70 bg-white/14 shadow-[0_1px_0_rgba(255,255,255,0.2)_inset]">
         <div className="flex items-center justify-between border-b border-[var(--border)]/70 px-3 py-2.5">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
@@ -1067,36 +1110,6 @@ function EmptyCameraPreview({ title, description }: { title: string; description
         </div>
 
         <LandscapeCameraFeed />
-
-
-        <div className="flex items-center justify-between border-b border-[var(--border)]/70 px-3 py-2.5">
-          <div className="flex items-center gap-2">
-            <Activity size={14} className="text-[var(--foreground)]" />
-            <p className="text-[12px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
-              Output body
-            </p>
-          </div>
-          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
-            json
-          </span>
-        </div>
-
-        <div className="px-3 py-3">
-          <div className="rounded-[14px] border border-dashed border-[var(--border)]/55 bg-white/10 px-3 py-3">
-            <p className="text-[14px] font-bold tracking-[-0.01em] text-[var(--foreground)]">{title}</p>
-            <p className="mt-2 text-[13px] font-semibold text-[var(--muted-foreground)]">{description}</p>
-            <pre className="mt-3 overflow-x-auto rounded-[10px] border border-[var(--border)]/45 bg-white/18 px-3 py-3 font-mono text-[11px] font-semibold leading-5 text-[var(--foreground)]">
-{`{
-  "roomId": "camera_preview",
-  "senderOnline": false,
-  "senderId": null,
-  "viewerCount": 0,
-  "frameCount": 0,
-  "lastFrameAt": null
-}`}
-            </pre>
-          </div>
-        </div>
       </div>
     </div>
   );

@@ -68,6 +68,11 @@ type ManifestRecord = {
   pathPath?: string;
   points?: number;
   error?: string;
+  // Gaussian splat (Modal pipeline) — fills in once train_splat finishes.
+  splatStatus?: "pending" | "training" | "ready" | "failed";
+  splatJobId?: string;
+  splatPath?: string;
+  splatError?: string;
 };
 
 type Manifest = { version: number; videos: Record<string, ManifestRecord> };
@@ -147,8 +152,46 @@ export async function POST(req: Request) {
     label,
     lbmpPath: `/clouds/splats/${videoId}/sparse.lbmp`,
     pathPath: `/clouds/splats/${videoId}/sparse.path.json`,
+    splatStatus: "pending",
   };
   await writeManifest(manifestPath, manifest);
+
+  // Kick off Modal 3DGS training in parallel. The web endpoint returns a
+  // call_id we persist so the dashboard's poll route can drain the result
+  // when training finishes (~5–10 min on a warm A100).
+  void (async () => {
+    const base = process.env.MODAL_SPLAT_URL?.replace(/\/$/, "");
+    if (!base) return;
+    try {
+      const res = await fetch(`${base}/spawn`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(process.env.IMPULSE_SPLAT_TOKEN
+            ? { authorization: `Bearer ${process.env.IMPULSE_SPLAT_TOKEN}` }
+            : {}),
+        },
+        body: JSON.stringify({ video_url: secureUrl }),
+      });
+      if (!res.ok) throw new Error(`spawn ${res.status}`);
+      const { call_id } = (await res.json()) as { call_id: string };
+      const m2 = await readManifest(manifestPath);
+      const rec = m2.videos[videoId];
+      if (rec) {
+        rec.splatJobId = call_id;
+        rec.splatStatus = "training";
+        await writeManifest(manifestPath, m2);
+      }
+    } catch (e) {
+      const m2 = await readManifest(manifestPath);
+      const rec = m2.videos[videoId];
+      if (rec) {
+        rec.splatStatus = "failed";
+        rec.splatError = e instanceof Error ? e.message : "modal spawn failed";
+        await writeManifest(manifestPath, m2);
+      }
+    }
+  })();
 
   // Spawn the COLMAP subprocess detached — the API responds immediately,
   // process_video.py keeps running and updates the manifest when done.

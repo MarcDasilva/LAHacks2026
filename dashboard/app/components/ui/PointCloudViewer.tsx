@@ -137,9 +137,9 @@ export function PointCloudViewer({
       const center = new THREE.Vector3(cx, cy, cz);
       // Closer initial framing — sit just outside the cloud rather than
       // 1.6× away, so the environment fills the viewport on first paint.
-      const radius = maxExtent * 0.85;
+      const radius = maxExtent * 0.2;
 
-      const camera = new THREE.PerspectiveCamera(55, w / h, maxExtent * 0.01, maxExtent * 10);
+      const camera = new THREE.PerspectiveCamera(55, w / h, maxExtent * 0.001, maxExtent * 10);
 
       const geom = new THREE.BufferGeometry();
       geom.setAttribute("position", new THREE.BufferAttribute(positions, 3));
@@ -262,20 +262,24 @@ export function PointCloudViewer({
       renderer.setSize(w, h);
       container.appendChild(renderer.domElement);
 
-      // Orbit: drag to rotate, scroll to zoom.
+      // Drag: horizontal = rotate around vertical axis, vertical = pan up/down.
       let azimuth = 0;
-      let elevation = 0.3;
+      const elevation = 0.3;
       let dist = radius;
+      let panY = 0;
       let dragging = false;
       let lastX = 0;
       let lastY = 0;
 
       const updateCamera = () => {
-        const x = center.x + dist * Math.cos(elevation) * Math.sin(azimuth);
-        const y = center.y + dist * Math.sin(elevation);
-        const z = center.z + dist * Math.cos(elevation) * Math.cos(azimuth);
+        const tx = center.x;
+        const ty = center.y + panY;
+        const tz = center.z;
+        const x = tx + dist * Math.cos(elevation) * Math.sin(azimuth);
+        const y = ty + dist * Math.sin(elevation);
+        const z = tz + dist * Math.cos(elevation) * Math.cos(azimuth);
         camera.position.set(x, y, z);
-        camera.lookAt(center);
+        camera.lookAt(tx, ty, tz);
       };
       updateCamera();
 
@@ -287,10 +291,14 @@ export function PointCloudViewer({
       };
       const onMove = (e: PointerEvent) => {
         if (!dragging) return;
-        azimuth -= (e.clientX - lastX) * 0.005;
-        if (!lockElevation) {
-          elevation = Math.max(-1.4, Math.min(1.4, elevation + (e.clientY - lastY) * 0.005));
-        }
+        // Horizontal drag rotates around the vertical axis; vertical drag pans
+        // the view up/down. Pan speed scales with zoom for consistent feel.
+        const dx = e.clientX - lastX;
+        const dy = e.clientY - lastY;
+        azimuth -= dx * 0.005;
+        panY -= dy * dist * 0.0025;
+        const limit = maxExtent * 4;
+        panY = Math.max(-limit, Math.min(limit, panY));
         lastX = e.clientX;
         lastY = e.clientY;
         updateCamera();
@@ -301,7 +309,7 @@ export function PointCloudViewer({
       const onWheel = (e: WheelEvent) => {
         e.preventDefault();
         const factor = Math.exp(e.deltaY * 0.001);
-        dist = Math.max(maxExtent * 0.2, Math.min(maxExtent * 6, dist * factor));
+        dist = Math.max(maxExtent * 0.02, Math.min(maxExtent * 6, dist * factor));
         updateCamera();
       };
 
@@ -316,10 +324,7 @@ export function PointCloudViewer({
       const tick = (now: number) => {
         const dt = (now - last) / 1000;
         last = now;
-        if (!dragging) {
-          azimuth += dt * 0.12;
-          updateCamera();
-        }
+        void dt;
         renderer.render(scene, camera);
         rafId = requestAnimationFrame(tick);
       };
