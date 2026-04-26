@@ -418,11 +418,11 @@ export function PointCloudViewer({
   }, [url, bridgeUrl, sessionId, pointSizeFactor, conf, downsample]);
 
   return (
-    <div ref={containerRef} className="absolute inset-0 rounded-[14px] overflow-hidden">
+    <div ref={containerRef} className="absolute inset-0 overflow-hidden">
       {(status === "loading" || status === "reconstructing") && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[var(--card)]/40 backdrop-blur-sm">
           <div className="h-6 w-6 rounded-full border-2 border-[var(--muted-foreground)] border-t-[var(--foreground)] animate-spin" />
-          <div className="text-[10px] font-mono text-[var(--muted-foreground)] uppercase tracking-widest">
+          <div className="text-[10px] font-display text-[var(--muted-foreground)] uppercase tracking-widest">
             {status === "reconstructing"
               ? `reconstructing${progressFrames != null ? ` · ${progressFrames} frames` : ""}`
               : sessionStatus === "offline" || sessionStatus?.startsWith("http")
@@ -431,7 +431,7 @@ export function PointCloudViewer({
           </div>
         </div>
       )}
-      <div className="absolute bottom-3 right-3 z-10 text-[10px] text-[var(--muted-foreground)] font-mono">
+      <div className="absolute bottom-3 right-3 z-10 text-[10px] text-[var(--muted-foreground)] font-display">
         {status === "ready" && `${pointCount.toLocaleString()} pts · drag · scroll`}
         {status === "error" && `error: ${error ?? "unknown"}`}
       </div>

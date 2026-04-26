@@ -310,19 +310,19 @@ export default function CameraFrameViewer({
       />
       {displayMode === "none" && (
         <div className="h-full w-full flex items-center justify-center">
-          <span className="text-xs text-[var(--muted-foreground)] font-mono uppercase tracking-widest">
+          <span className="text-xs text-[var(--muted-foreground)] font-display uppercase tracking-widest">
             no frame stream yet
           </span>
         </div>
       )}
 
-      <div className="absolute right-3 bottom-3 flex items-center gap-1.5 rounded-[8px] bg-black/40 px-2 py-1 backdrop-blur-sm">
-        <span className={`h-1.5 w-1.5 rounded-full ${senderOnline ? "bg-[oklch(0.82_0.09_160)]" : "bg-[oklch(0.78_0.09_15)]"} ${senderOnline ? "animate-pulse" : ""}`} />
-        <span className="text-[10px] text-white font-mono uppercase tracking-widest">{statusLabel}</span>
+      <div className="absolute right-3 bottom-3 flex items-center gap-1.5 bg-black/40 px-2 py-1 backdrop-blur-sm">
+        <span className={`h-1.5 w-1.5 ${senderOnline ? "bg-white/60" : "bg-[oklch(0.78_0.09_15)]"} ${senderOnline ? "animate-pulse" : ""}`} />
+        <span className="text-[10px] text-white font-display uppercase tracking-widest">{statusLabel}</span>
       </div>
 
-      <div className="absolute left-3 bottom-3 rounded-[8px] bg-black/40 px-2 py-1 backdrop-blur-sm">
-        <span className="text-[10px] text-white/90 font-mono">
+      <div className="absolute left-3 bottom-3 bg-black/40 px-2 py-1 backdrop-blur-sm">
+        <span className="text-[10px] text-white/70 font-display">
           {lastFrameAtLabel ? `last frame ${lastFrameAtLabel}` : `room ${roomId}`}
         </span>
       </div>
