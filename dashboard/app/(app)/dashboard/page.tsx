@@ -653,9 +653,10 @@ function SparseSplatPanel({
           {resolvedUrl ? (
             <PointCloudViewer
               url={resolvedUrl}
-              pointSizeFactor={0.006}
+              pointSizeFactor={0.0014}
               pathUrl="/clouds/sparse.path.json"
               lockElevation
+              flipUp
             />
           ) : null}
         </div>
