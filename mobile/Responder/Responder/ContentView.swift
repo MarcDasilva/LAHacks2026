@@ -60,6 +60,7 @@ final class CameraViewModel: NSObject, ObservableObject {
                     self?.latestDetections = text.isEmpty ? "[no detections]" : text
                     self?.yoloError = nil
                     self?.lastInferenceError = self?.sttError
+                    self?.frameStreamClient.sendModelOutput(kind: "yolo", payload: payload)
                 }
             },
             onError: { [weak self] message in
@@ -119,6 +120,7 @@ final class CameraViewModel: NSObject, ObservableObject {
                     self?.latestYamnetOutput = text.isEmpty ? "[empty yamnet output]" : text
                     self?.yamnetError = nil
                     self?.lastInferenceError = self?.sttError ?? self?.yoloError
+                    self?.frameStreamClient.sendModelOutput(kind: "yamnet", payload: payload)
                 }
             },
             onError: { [weak self] message in

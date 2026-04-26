@@ -104,7 +104,7 @@
          </EnvironmentVariable>
          <EnvironmentVariable
             key = "RESPONDER_FRAME_STREAM_ROOM_ID"
-            value = "main-camera"
+            value = "cam-03"
             isEnabled = "YES">
          </EnvironmentVariable>
          <EnvironmentVariable
