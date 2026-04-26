@@ -100,6 +100,8 @@ const STATUS: Record<AlertItem["status"], string> = {
   reviewing: "text-black bg-[oklch(0.86_0.09_90)]/12 border border-[oklch(0.86_0.09_90)]/45",
 };
 
+const NEW_ALERT_SESSION_KEY = "impulse:alerts:inject-new";
+
 export default function AlertsClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -136,6 +138,7 @@ export default function AlertsClient() {
 
     const doneTimer = window.setTimeout(() => {
       setBootPhase("hidden");
+      window.sessionStorage.setItem(NEW_ALERT_SESSION_KEY, "1");
       router.replace("/alerts");
     }, 1450);
 
@@ -150,9 +153,16 @@ export default function AlertsClient() {
       | PerformanceNavigationTiming
       | undefined;
     const isReload = navEntry?.type === "reload";
-    if (!isReload) return;
+    const shouldInjectFromBoot =
+      !shouldBoot && window.sessionStorage.getItem(NEW_ALERT_SESSION_KEY) === "1";
+    const shouldInjectNewAlert = isReload || shouldInjectFromBoot;
+    if (!shouldInjectNewAlert) return;
 
-    const delayMs = shouldBoot ? 3650 : 2550;
+    if (shouldInjectFromBoot) {
+      window.sessionStorage.removeItem(NEW_ALERT_SESSION_KEY);
+    }
+
+    const delayMs = shouldInjectFromBoot ? 1000 : 2550;
     const timer = window.setTimeout(() => {
       setAlerts((current) => [WESTWOOD_ALERT, ...current.filter((a) => a.id !== WESTWOOD_ALERT.id)]);
       setNewAlertId(WESTWOOD_ALERT.id);

@@ -49,7 +49,7 @@ function createAlertMarkerElement() {
   const connectButtonEl = markerEl.querySelector<HTMLButtonElement>(".alert-modal-connect");
   connectButtonEl?.addEventListener("click", (event) => {
     event.stopPropagation();
-    window.location.assign("/dashboard");
+    window.location.assign("/dashboard?boot=1");
   });
   const previewMountEl = markerEl.querySelector<HTMLDivElement>(".alert-modal-preview-mount");
   if (!previewMountEl) {

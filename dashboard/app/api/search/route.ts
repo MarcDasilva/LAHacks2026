@@ -24,26 +24,34 @@ type IndexFile = {
   entries: IndexEntry[];
 };
 
-let envLoaded = false;
 function ensureOpenAIEnv() {
-  if (envLoaded) return;
-  envLoaded = true;
   if (process.env.OPENAI_API_KEY) return;
-  try {
-    const envPath = path.join(process.cwd(), "..", ".env");
-    const text = readFileSync(envPath, "utf8");
-    for (const raw of text.split("\n")) {
-      const line = raw.trim();
-      if (!line || line.startsWith("#")) continue;
-      const m = line.match(/^([A-Z0-9_]+)\s*=\s*(.+)$/i);
-      if (!m) continue;
-      const [, key, valueRaw] = m;
-      if (key !== "OPENAI_API_KEY") continue;
-      process.env.OPENAI_API_KEY = valueRaw.replace(/^["']|["']$/g, "");
-      break;
+
+  const envPaths = [
+    path.join(process.cwd(), ".env.local"),
+    path.join(process.cwd(), ".env"),
+    path.join(process.cwd(), "..", ".env.local"),
+    path.join(process.cwd(), "..", ".env"),
+    path.join(process.cwd(), "..", "..", ".env.local"),
+    path.join(process.cwd(), "..", "..", ".env"),
+  ];
+
+  for (const envPath of envPaths) {
+    try {
+      const text = readFileSync(envPath, "utf8");
+      for (const raw of text.split("\n")) {
+        const line = raw.trim();
+        if (!line || line.startsWith("#")) continue;
+        const m = line.match(/^([A-Z0-9_]+)\s*=\s*(.+)$/i);
+        if (!m) continue;
+        const [, key, valueRaw] = m;
+        if (key !== "OPENAI_API_KEY") continue;
+        process.env.OPENAI_API_KEY = valueRaw.replace(/^["']|["']$/g, "");
+        return;
+      }
+    } catch {
+      /* try the next candidate path */
     }
-  } catch {
-    /* missing — fall through */
   }
 }
 
