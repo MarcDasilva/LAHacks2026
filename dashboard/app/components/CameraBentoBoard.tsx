@@ -48,13 +48,13 @@ export default function CameraBentoBoard({ rooms }: CameraBentoBoardProps) {
 
   return (
     <div className="relative h-full w-full p-2">
-      <div className="absolute right-3 top-3 z-20 flex items-center gap-1 bg-black/45 p-1 backdrop-blur-sm">
+      <div className="absolute right-3 top-3 z-20 flex items-center gap-1 rounded-[12px] border border-black/15 bg-white/38 p-1 backdrop-blur-md shadow-[0_1px_0_rgba(255,255,255,0.35)_inset]">
         <ModeButton label="Single" active={mode === "single"} onClick={() => setMode("single")} />
         <ModeButton label="Bento" active={mode === "bento"} onClick={() => setMode("bento")} />
       </div>
 
       {mode === "single" ? (
-        <div className="h-full w-full overflow-hidden border border-[var(--border)]/80 relative">
+        <div className="relative h-full w-full overflow-hidden rounded-[14px] border border-[var(--border)]/70 bg-white/10">
           <CameraFrameViewer roomId={activePrimaryRoom} />
           <FeedBadge roomId={activePrimaryRoom} />
         </div>
@@ -68,7 +68,7 @@ export default function CameraBentoBoard({ rooms }: CameraBentoBoardProps) {
               <button
                 key={roomId}
                 onClick={() => setPrimaryRoom(roomId)}
-                className={`relative w-full overflow-hidden border border-[var(--border)]/80 text-left aspect-video shrink-0 transition-opacity ${
+                className={`relative aspect-video w-full shrink-0 overflow-hidden rounded-[14px] border border-[var(--border)]/70 bg-white/10 text-left transition-opacity ${
                   draggingRoom === roomId ? "opacity-60" : "opacity-100"
                 } ${
                   dragOverRoom === roomId && draggingRoom !== roomId ? "brightness-125" : ""
@@ -145,10 +145,10 @@ function ModeButton({
   return (
     <button
       onClick={onClick}
-      className={`mac-btn px-2.5 py-1 text-[10px] uppercase tracking-wider font-semibold font-display ${
+      className={`rounded-[10px] border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider font-display transition-colors ${
         active
-          ? "mac-btn-primary text-[var(--foreground)]"
-          : "text-white/80 hover:text-white"
+          ? "border-black/25 bg-white/82 text-black shadow-[0_1px_0_rgba(255,255,255,0.25)_inset]"
+          : "border-black/12 bg-white/24 text-black/70 hover:bg-white/42 hover:text-black"
       }`}
       type="button"
     >
@@ -159,8 +159,10 @@ function ModeButton({
 
 function FeedBadge({ roomId, highlighted = false }: { roomId: string; highlighted?: boolean }) {
   return (
-    <div className={`absolute left-2 top-2 z-20 px-2 py-1 text-[10px] font-display uppercase tracking-widest backdrop-blur-sm ${
-      highlighted ? "bg-white/35 text-black/85" : "bg-black/45 text-white/70"
+    <div className={`absolute left-2 top-2 z-20 rounded-[10px] border px-2 py-1 text-[10px] font-display uppercase tracking-widest backdrop-blur-md ${
+      highlighted
+        ? "border-black/18 bg-white/78 text-black/88"
+        : "border-black/12 bg-white/50 text-black/65"
     }`}>
       {roomId}
     </div>
