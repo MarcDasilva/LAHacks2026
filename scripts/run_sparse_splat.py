@@ -73,13 +73,12 @@ def run_colmap(workspace: Path, images_dir: Path) -> Path:
         "--image_path", str(images_dir),
         "--ImageReader.single_camera", "1",
         "--FeatureExtraction.use_gpu", "0",
-        "--SiftExtraction.max_num_features", "16384",
-        "--SiftExtraction.peak_threshold", "0.0033",
-        "--SiftExtraction.edge_threshold", "12",
+        "--SiftExtraction.max_num_features", "20480",
+        "--SiftExtraction.peak_threshold", "0.0025",
+        "--SiftExtraction.edge_threshold", "14",
     ])
-    # Exhaustive matching is feasible for the ~hundred-frame videos we feed
-    # this and produces far more loop closures than sequential, which the
-    # mapper can triangulate into additional points.
+    # Exhaustive matching across the ~hundred-frame video maximises loop
+    # closures, which the mapper triangulates into additional points.
     run([
         "colmap", "exhaustive_matcher",
         "--database_path", str(db),
@@ -91,8 +90,34 @@ def run_colmap(workspace: Path, images_dir: Path) -> Path:
         "--image_path", str(images_dir),
         "--output_path", str(sparse_dir),
         "--Mapper.ba_global_max_num_iterations", "75",
-        "--Mapper.tri_min_angle", "1.0",
+        "--Mapper.tri_min_angle", "0.8",
     ])
+    # Re-triangulate already-registered images with the relaxed thresholds
+    # to squeeze out more environment points the mapper passed over.
+    submodels = [p for p in sorted(sparse_dir.iterdir()) if p.is_dir()]
+    if submodels:
+        best_for_retri = max(
+            submodels,
+            key=lambda p: (p / "points3D.bin").stat().st_size if (p / "points3D.bin").exists() else 0,
+        )
+        retri_out = sparse_dir / f"{best_for_retri.name}_retri"
+        retri_out.mkdir(exist_ok=True)
+        try:
+            run([
+                "colmap", "point_triangulator",
+                "--database_path", str(db),
+                "--image_path", str(images_dir),
+                "--input_path", str(best_for_retri),
+                "--output_path", str(retri_out),
+                "--Mapper.tri_min_angle", "0.8",
+                "--Mapper.tri_create_max_angle_error", "3",
+            ])
+            if (retri_out / "points3D.bin").exists():
+                shutil.rmtree(best_for_retri)
+                retri_out.rename(best_for_retri)
+        except subprocess.CalledProcessError:
+            print("point_triangulator failed — keeping mapper output", file=sys.stderr)
+            shutil.rmtree(retri_out, ignore_errors=True)
 
     # mapper writes one or more sub-models (0/, 1/, ...) — pick the largest.
     submodels = sorted(p for p in sparse_dir.iterdir() if p.is_dir())

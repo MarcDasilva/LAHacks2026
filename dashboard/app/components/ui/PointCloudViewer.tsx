@@ -14,6 +14,8 @@ interface Props {
   pathUrl?: string;
   /** If true, drag only rotates around the vertical axis (azimuth). */
   lockElevation?: boolean;
+  /** Rotate 180° around X so COLMAP's image-style Y-down frame reads up. */
+  flipUp?: boolean;
 }
 
 export function PointCloudViewer({
@@ -23,6 +25,7 @@ export function PointCloudViewer({
   pointSizeFactor = 0.0025,
   pathUrl,
   lockElevation = false,
+  flipUp = false,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -150,8 +153,15 @@ export function PointCloudViewer({
         transparent: true,
         opacity: 0.95,
       });
+      // Group hosting the cloud + path overlays. Rotated 180° around X when
+      // flipUp is set so COLMAP's image-style frame (Y-down) reads with
+      // gravity in the viewer.
+      const sceneGroup = new THREE.Group();
+      if (flipUp) sceneGroup.rotation.x = Math.PI;
+      scene.add(sceneGroup);
+
       const cloud = new THREE.Points(geom, mat);
-      scene.add(cloud);
+      sceneGroup.add(cloud);
 
       // Optional camera-trajectory polyline. Fetched lazily so a missing
       // path file doesn't block the cloud render. Coloured as a vertex
@@ -198,7 +208,7 @@ export function PointCloudViewer({
                 opacity: 0.95,
                 depthWrite: false,
               });
-              scene.add(new THREE.Mesh(tubeGeom, tubeMat));
+              sceneGroup.add(new THREE.Mesh(tubeGeom, tubeMat));
               disposables.push(tubeGeom, tubeMat);
 
               // Thin bright underline so the path remains crisp at any zoom.
@@ -210,7 +220,7 @@ export function PointCloudViewer({
                 transparent: true,
                 opacity: 0.85,
               });
-              scene.add(new THREE.Line(pathGeom, pathMat));
+              sceneGroup.add(new THREE.Line(pathGeom, pathMat));
               disposables.push(pathGeom, pathMat);
 
               // Endpoint dots so the start/end of the trajectory pop.
@@ -236,7 +246,7 @@ export function PointCloudViewer({
                 transparent: true,
                 opacity: 1.0,
               });
-              scene.add(new THREE.Points(endsGeom, endsMat));
+              sceneGroup.add(new THREE.Points(endsGeom, endsMat));
               disposables.push(endsGeom, endsMat);
             }
           }
