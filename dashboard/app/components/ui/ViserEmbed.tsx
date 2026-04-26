@@ -5,25 +5,27 @@ import { useEffect, useRef, useState } from "react";
 interface Props {
   viserUrl: string;
   sessionId: string;
+  /** Bridge HTTP base. We POST /sessions/{id}/replay here whenever the
+   *  selected session changes so the viser scene swaps to that session's
+   *  points (and clears anything else that was loaded). */
+  bridgeUrl: string;
 }
 
 /**
- * Embeds the viser web client in an iframe, scoped to a single session via
- * the `initialSceneNodeFilter` query param so we only see this session's
- * subtree.
+ * Embeds the viser web client in an iframe.
  *
- * The viser server is a sibling of the bridge HTTP server — see
- * lingbot_bridge/bridge/viser_server.py. On RunPod each port has its own
- * proxy hostname, so VISER_URL is configured separately from BRIDGE_URL.
+ * The viser server is a singleton hosted in the ingest_server process. The
+ * scene contains every session under `/sessions/{id}/...`, but we keep only
+ * one session's subtree at a time by triggering a replay on session change
+ * — replay clears all other sessions before pushing the selected one.
  */
-export function ViserEmbed({ viserUrl, sessionId }: Props) {
+export function ViserEmbed({ viserUrl, sessionId, bridgeUrl }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [reachable, setReachable] = useState<"checking" | "ok" | "down">("checking");
+  const [replay, setReplay] = useState<"idle" | "queued" | "error">("idle");
 
   useEffect(() => {
     let cancelled = false;
-    // Cheap reachability ping. viser serves its client over HTTP on the
-    // same port; a HEAD on `/` is enough to tell us if the proxy is up.
     fetch(viserUrl, { method: "HEAD", mode: "no-cors" })
       .then(() => {
         if (!cancelled) setReachable("ok");
@@ -36,7 +38,30 @@ export function ViserEmbed({ viserUrl, sessionId }: Props) {
     };
   }, [viserUrl]);
 
-  const src = `${viserUrl.replace(/\/$/, "")}/?initialSceneNodeFilter=${encodeURIComponent(`/sessions/${sessionId}`)}`;
+  // Whenever the user picks a session, kick off a server-side replay. This
+  // is what makes "select church" actually load the church reconstruction
+  // (and only that one). 409 means the session isn't 'done' yet, which we
+  // treat as a no-op — its points will land in viser when inference finishes.
+  useEffect(() => {
+    let cancelled = false;
+    const url = `${bridgeUrl.replace(/\/$/, "")}/sessions/${encodeURIComponent(sessionId)}/replay`;
+    setReplay("queued");
+    fetch(url, { method: "POST" })
+      .then((r) => {
+        if (cancelled) return;
+        if (r.ok) setReplay("idle");
+        else if (r.status === 409) setReplay("idle");
+        else setReplay("error");
+      })
+      .catch(() => {
+        if (!cancelled) setReplay("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, bridgeUrl]);
+
+  const src = `${viserUrl.replace(/\/$/, "")}/`;
 
   if (reachable === "down") {
     return (
@@ -47,13 +72,19 @@ export function ViserEmbed({ viserUrl, sessionId }: Props) {
   }
 
   return (
-    <iframe
-      ref={iframeRef}
-      key={sessionId}
-      src={src}
-      className="absolute inset-0 w-full h-full border-0 bg-[#0b0a0d]"
-      allow="fullscreen"
-      title="viser streaming viewer"
-    />
+    <>
+      <iframe
+        ref={iframeRef}
+        src={src}
+        className="absolute inset-0 w-full h-full border-0 bg-[#0b0a0d]"
+        allow="fullscreen"
+        title="viser streaming viewer"
+      />
+      {replay === "error" && (
+        <div className="absolute bottom-3 right-3 z-10 text-[10px] text-[var(--muted-foreground)] font-mono bg-black/60 px-2 py-1 rounded">
+          replay failed — check bridge
+        </div>
+      )}
+    </>
   );
 }

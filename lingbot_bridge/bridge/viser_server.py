@@ -79,6 +79,16 @@ def clear_session(session_id: str) -> None:
                 log.debug("viser handle.remove failed (already gone?)", exc_info=True)
 
 
+def clear_all_sessions() -> None:
+    """Wipe every session subtree from the viser scene. Used to isolate the
+    view to a single session: callers (e.g. replay_session) clear before
+    pushing so the dashboard only ever shows the active selection."""
+    if _server is None:
+        return
+    for sid in list(_sessions.keys()):
+        clear_session(sid)
+
+
 def add_frame_points(
     session_id: str,
     frame_idx: int,
@@ -152,6 +162,68 @@ def add_camera_frustum(
             _session_state(session_id)["frustums"][frame_idx] = handle
     except Exception:
         log.exception("viser add_camera_frustum failed")
+
+
+def replay_session(session_id: str, output_dir) -> int:
+    """Push an already-reconstructed session's points to viser, frame-by-frame.
+
+    Loads predictions.pt + images.pt from `output_dir` and emits one
+    add_point_cloud + add_camera_frustum call per frame. Used in two places:
+
+      1. inference_runner._run_one — at end of a fresh reconstruction, so the
+         user sees the cloud build up live in viser instead of as a single
+         post-inference jump.
+      2. POST /sessions/{id}/replay — re-pushes a 'done' session's points
+         into viser without re-running inference. Useful after a bridge
+         restart cleared viser memory, or to demo the streaming UX on an
+         existing session.
+
+    Returns the number of frames pushed.
+    """
+    import numpy as np  # type: ignore
+    import torch  # type: ignore
+
+    from . import cloud_export
+
+    preds_path = output_dir / "predictions.pt"
+    images_path = output_dir / "images.pt"
+    if not preds_path.exists() or not images_path.exists():
+        raise FileNotFoundError(
+            f"missing predictions.pt or images.pt under {output_dir}"
+        )
+    if not is_running():
+        raise RuntimeError("viser server is not running")
+
+    preds = torch.load(preds_path, map_location="cpu", weights_only=False)
+    images_t = torch.load(images_path, map_location="cpu", weights_only=False)
+
+    depth = preds["depth"]
+    if depth.ndim == 4 and depth.shape[-1] == 1:
+        depth = depth.squeeze(-1)
+    extr = preds["extrinsic"]
+    intr = preds["intrinsic"]
+    conf = preds.get("depth_conf")
+    colors = images_t.permute(0, 2, 3, 1).contiguous()
+
+    n = depth.shape[0]
+    log.info("replaying %d frames into viser for session %s", n, session_id)
+    # Isolate the view: drop every other session's nodes so the dashboard
+    # only shows the freshly-selected one. Matches the user-facing model
+    # where switching sessions in the picker swaps the entire scene.
+    clear_all_sessions()
+    for i in range(n):
+        pts, col = cloud_export.process_frame(
+            np.asarray(depth[i]),
+            np.asarray(extr[i]),
+            np.asarray(intr[i]),
+            np.asarray(colors[i]),
+            np.asarray(conf[i]) if conf is not None else None,
+        )
+        add_frame_points(session_id, i, pts, col)
+        add_camera_frustum(
+            session_id, i, np.asarray(extr[i]), np.asarray(intr[i])
+        )
+    return n
 
 
 def _rotation_matrix_to_wxyz(R):
