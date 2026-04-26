@@ -6,6 +6,7 @@ __pycache__/
 data/
 database/data/
 database/.venv/
+/9jYiR3Yltzb/
 
 # lingbot_bridge runtime artifacts (model weights, captures, derived data)
 lingbot_bridge/models/

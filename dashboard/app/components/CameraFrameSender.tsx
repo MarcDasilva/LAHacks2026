@@ -244,7 +244,7 @@ export default function CameraFrameSender({
         <video ref={videoRef} className="h-full w-full object-cover" muted playsInline />
         {!isStreaming && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-sm text-[var(--muted-foreground)] font-mono uppercase tracking-widest">
+            <span className="text-sm text-[var(--muted-foreground)] font-display uppercase tracking-widest">
               camera preview
             </span>
           </div>
@@ -255,14 +255,14 @@ export default function CameraFrameSender({
         {!isStreaming ? (
           <button
             onClick={startStreaming}
-            className="px-4 py-2 text-sm font-semibold rounded-[8px] bg-[var(--muted)] hover:bg-[var(--border)] transition-colors"
+            className="mac-btn mac-btn-primary px-4 py-2 text-sm font-semibold"
           >
             Start WebRTC Stream
           </button>
         ) : (
           <button
             onClick={stopStreaming}
-            className="px-4 py-2 text-sm font-semibold rounded-[8px] bg-[oklch(0.78_0.09_15)]/20 text-[oklch(0.78_0.09_15)] hover:bg-[oklch(0.78_0.09_15)]/30 transition-colors"
+            className="mac-btn mac-btn-danger px-4 py-2 text-sm font-semibold"
           >
             Stop Stream
           </button>
@@ -270,11 +270,11 @@ export default function CameraFrameSender({
       </div>
 
       <div className="rounded-[12px] bg-[var(--card)] border border-[var(--border)] p-3">
-        <div className="text-xs text-[var(--muted-foreground)] font-mono">status: {status}</div>
-        <div className="text-xs text-[var(--muted-foreground)] font-mono">server: {resolvedServerUrl}</div>
-        <div className="text-xs text-[var(--muted-foreground)] font-mono">room: {roomId}</div>
-        <div className="text-xs text-[var(--muted-foreground)] font-mono">max capture: {maxWidth}x{maxHeight}@{maxFps}</div>
-        <div className="text-xs text-[var(--muted-foreground)] font-mono">connected viewers: {viewerCount}</div>
+        <div className="text-xs text-[var(--muted-foreground)] font-display">status: {status}</div>
+        <div className="text-xs text-[var(--muted-foreground)] font-display">server: {resolvedServerUrl}</div>
+        <div className="text-xs text-[var(--muted-foreground)] font-display">room: {roomId}</div>
+        <div className="text-xs text-[var(--muted-foreground)] font-display">max capture: {maxWidth}x{maxHeight}@{maxFps}</div>
+        <div className="text-xs text-[var(--muted-foreground)] font-display">connected viewers: {viewerCount}</div>
         {error && <div className="text-xs text-[oklch(0.78_0.09_15)] mt-1">{error}</div>}
       </div>
     </div>
