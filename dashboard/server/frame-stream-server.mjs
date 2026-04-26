@@ -7,6 +7,14 @@ const maxViewerBufferBytes = Number(process.env.FRAME_STREAM_MAX_VIEWER_BUFFER_B
 const rooms = new Map();
 let nextSocketId = 1;
 
+function normalizeModelOutputs(modelOutputs = {}) {
+  return {
+    yolo: modelOutputs.yolo ?? null,
+    yamnet: modelOutputs.yamnet ?? null,
+    stt: modelOutputs.stt ?? null,
+  };
+}
+
 function log(event, data = {}) {
   const time = new Date().toISOString();
   console.log(`[signal ${time}] ${event}`, data);
@@ -21,19 +29,19 @@ function getRoom(roomId) {
       frameCount: 0,
       lastFrameAt: null,
       lastFrameBytes: 0,
-      modelOutputs: {
-        yolo: null,
-        yamnet: null,
-      },
+      modelOutputs: normalizeModelOutputs(),
       updatedAt: new Date().toISOString(),
     };
     rooms.set(roomId, room);
     log("room_created", { roomId });
+  } else {
+    room.modelOutputs = normalizeModelOutputs(room.modelOutputs);
   }
   return room;
 }
 
 function roomSnapshot(roomId, room) {
+  const modelOutputs = normalizeModelOutputs(room.modelOutputs);
   return {
     roomId,
     senderOnline: Boolean(room.sender),
@@ -42,7 +50,7 @@ function roomSnapshot(roomId, room) {
     frameCount: room.frameCount,
     lastFrameAt: room.lastFrameAt,
     lastFrameBytes: room.lastFrameBytes,
-    modelOutputs: room.modelOutputs,
+    modelOutputs,
     updatedAt: room.updatedAt,
   };
 }
@@ -230,11 +238,20 @@ wss.on("connection", (socket) => {
       const room = rooms.get(roomId);
       if (!room) return;
 
-      const kind = payload.kind === "yamnet" ? "yamnet" : payload.kind === "yolo" ? "yolo" : null;
+      const kind =
+        payload.kind === "yamnet"
+          ? "yamnet"
+          : payload.kind === "yolo"
+            ? "yolo"
+            : payload.kind === "stt"
+              ? "stt"
+              : null;
       if (!kind) return;
 
+      room.modelOutputs = normalizeModelOutputs(room.modelOutputs);
       room.modelOutputs[kind] = payload.payload;
       room.updatedAt = new Date().toISOString();
+      log("model_output_received", { roomId, kind, hasText: Boolean(payload.payload?.output?.text) });
       return;
     }
   });

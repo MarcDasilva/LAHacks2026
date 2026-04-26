@@ -187,12 +187,24 @@ final class FrameStreamClient: NSObject {
         guard settings.enabled else { return }
         sendQueue.async { [weak self] in
             guard let self else { return }
-            guard self.isRunning, self.isConnected, let webSocketTask = self.webSocketTask else { return }
+            guard self.isRunning, self.isConnected, let webSocketTask = self.webSocketTask else {
+                print("[Responder][FrameStream][WARN] Dropped model output kind=\(kind) connected=\(self.isConnected) running=\(self.isRunning)")
+                return
+            }
             let envelope = ModelOutputEnvelope(type: "model-output", kind: kind, roomId: self.settings.roomID, payload: payload)
             guard let data = try? JSONEncoder.frameStreamEncoder.encode(envelope),
                   let text = String(data: data, encoding: .utf8)
-            else { return }
-            webSocketTask.send(.string(text)) { _ in }
+            else {
+                print("[Responder][FrameStream][ERROR] Failed to encode model output kind=\(kind)")
+                return
+            }
+            webSocketTask.send(.string(text)) { error in
+                if let error {
+                    print("[Responder][FrameStream][ERROR] Failed to send model output kind=\(kind): \(error.localizedDescription)")
+                } else {
+                    print("[Responder][FrameStream] Sent model output kind=\(kind) chunk=\(payload.chunk.chunkID)")
+                }
+            }
         }
     }
 

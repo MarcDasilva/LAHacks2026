@@ -78,13 +78,23 @@
       </CommandLineArguments>
       <EnvironmentVariables>
          <EnvironmentVariable
+            key = "RESPONDER_AUDIO_ENGINE"
+            value = "APPLE"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "RESPONDER_STT_TIMEOUT_SECONDS"
+            value = "12"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
             key = "RESPONDER_AUDIO_USER_PROMPT"
             value = "Transcribe this audio in English."
             isEnabled = "YES">
          </EnvironmentVariable>
          <EnvironmentVariable
             key = "RESPONDER_STT_ON_HOLD"
-            value = "true"
+            value = "false"
             isEnabled = "YES">
          </EnvironmentVariable>
          <EnvironmentVariable
