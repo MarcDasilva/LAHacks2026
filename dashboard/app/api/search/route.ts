@@ -6,8 +6,8 @@ import path from "path";
 export const dynamic = "force-dynamic";
 
 const readFileAsync = promisify(readFile);
-const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
-const EMBED_MODEL = "models/gemini-embedding-001";
+const OPENAI_BASE = "https://api.openai.com/v1";
+const EMBED_MODEL = "text-embedding-3-small";
 
 type IndexEntry = {
   videoId: string;
@@ -25,10 +25,10 @@ type IndexFile = {
 };
 
 let envLoaded = false;
-function ensureGeminiEnv() {
+function ensureOpenAIEnv() {
   if (envLoaded) return;
   envLoaded = true;
-  if (process.env.GEMINI_API_KEY) return;
+  if (process.env.OPENAI_API_KEY) return;
   try {
     const envPath = path.join(process.cwd(), "..", ".env");
     const text = readFileSync(envPath, "utf8");
@@ -38,8 +38,8 @@ function ensureGeminiEnv() {
       const m = line.match(/^([A-Z0-9_]+)\s*=\s*(.+)$/i);
       if (!m) continue;
       const [, key, valueRaw] = m;
-      if (key !== "GEMINI_API_KEY") continue;
-      process.env.GEMINI_API_KEY = valueRaw.replace(/^["']|["']$/g, "");
+      if (key !== "OPENAI_API_KEY") continue;
+      process.env.OPENAI_API_KEY = valueRaw.replace(/^["']|["']$/g, "");
       break;
     }
   } catch {
@@ -56,23 +56,22 @@ async function loadIndex(): Promise<IndexFile> {
 }
 
 async function embedQuery(query: string, apiKey: string): Promise<number[]> {
-  const res = await fetch(
-    `${GEMINI_BASE}/${EMBED_MODEL}:embedContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        content: { parts: [{ text: query }] },
-        taskType: "RETRIEVAL_QUERY",
-      }),
-    }
-  );
+  const res = await fetch(`${OPENAI_BASE}/embeddings`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({ model: EMBED_MODEL, input: query }),
+  });
   if (!res.ok) {
-    throw new Error(`gemini embed ${res.status}: ${await res.text()}`);
+    throw new Error(`openai embed ${res.status}: ${await res.text()}`);
   }
-  const payload = (await res.json()) as { embedding?: { values?: number[] } };
-  const values = payload.embedding?.values;
-  if (!values?.length) throw new Error("gemini returned empty embedding");
+  const payload = (await res.json()) as {
+    data?: Array<{ embedding?: number[] }>;
+  };
+  const values = payload.data?.[0]?.embedding;
+  if (!values?.length) throw new Error("openai returned empty embedding");
   return values;
 }
 
@@ -99,10 +98,10 @@ export async function GET(req: Request) {
     return NextResponse.json({ results: [], error: "missing q" }, { status: 400 });
   }
 
-  ensureGeminiEnv();
-  if (!process.env.GEMINI_API_KEY) {
+  ensureOpenAIEnv();
+  if (!process.env.OPENAI_API_KEY) {
     return NextResponse.json(
-      { results: [], error: "GEMINI_API_KEY not configured" },
+      { results: [], error: "OPENAI_API_KEY not configured" },
       { status: 500 }
     );
   }
@@ -124,7 +123,7 @@ export async function GET(req: Request) {
 
   let queryVec: number[];
   try {
-    queryVec = await embedQuery(q, process.env.GEMINI_API_KEY);
+    queryVec = await embedQuery(q, process.env.OPENAI_API_KEY);
   } catch (e) {
     const message = e instanceof Error ? e.message : "embed failed";
     return NextResponse.json({ results: [], error: message }, { status: 502 });
