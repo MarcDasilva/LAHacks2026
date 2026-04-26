@@ -16,25 +16,43 @@ const mkdirAsync = promisify(mkdir);
 const readFileAsyncRaw = promisify(readFile);
 
 let envLoaded = false;
-function ensureEnv(name: string) {
+function ensureEnv() {
   if (envLoaded) return;
   envLoaded = true;
-  if (process.env[name] && process.env.CLOUDINARY_URL) return;
-  try {
-    const envPath = path.join(process.cwd(), "..", ".env");
-    const text = readFileSync(envPath, "utf8");
-    for (const raw of text.split("\n")) {
-      const line = raw.trim();
-      if (!line || line.startsWith("#")) continue;
-      const m = line.match(/^([A-Z0-9_]+)\s*=\s*(.+)$/i);
-      if (!m) continue;
-      const [, key, valueRaw] = m;
-      if (process.env[key]) continue;
-      process.env[key] = valueRaw.replace(/^["']|["']$/g, "");
+  for (const envPath of [
+    path.join(process.cwd(), "..", ".env"),
+    path.join(process.cwd(), ".env.local"),
+  ]) {
+    try {
+      const text = readFileSync(envPath, "utf8");
+      for (const raw of text.split("\n")) {
+        const line = raw.trim();
+        if (!line || line.startsWith("#")) continue;
+        const m = line.match(/^([A-Z0-9_]+)\s*=\s*(.+)$/i);
+        if (!m) continue;
+        const [, key, valueRaw] = m;
+        if (process.env[key]) continue;
+        process.env[key] = valueRaw.replace(/^["']|["']$/g, "");
+      }
+    } catch {
+      /* missing — try the next */
     }
-  } catch {
-    /* missing — fall through */
   }
+}
+
+function configureCloudinary(): boolean {
+  ensureEnv();
+  const url = process.env.CLOUDINARY_URL;
+  if (!url) return false;
+  const m = url.match(/^cloudinary:\/\/([^:]+):([^@]+)@(.+?)\/?$/);
+  if (!m) return false;
+  cloudinary.config({
+    cloud_name: m[3],
+    api_key: m[1],
+    api_secret: m[2],
+    secure: true,
+  });
+  return true;
 }
 
 function publicIdToVideoId(publicId: string): string {
@@ -69,14 +87,12 @@ async function writeManifest(manifestPath: string, manifest: Manifest): Promise<
 }
 
 export async function POST(req: Request) {
-  ensureEnv("CLOUDINARY_URL");
-  if (!process.env.CLOUDINARY_URL) {
+  if (!configureCloudinary()) {
     return NextResponse.json(
       { error: "CLOUDINARY_URL not configured" },
       { status: 500 }
     );
   }
-  cloudinary.config();
 
   const form = await req.formData();
   const file = form.get("file");

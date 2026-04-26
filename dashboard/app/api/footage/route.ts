@@ -11,25 +11,46 @@ let envLoaded = false;
 function ensureCloudinaryEnv() {
   if (envLoaded) return;
   envLoaded = true;
-  if (process.env.CLOUDINARY_URL) return;
-  // dashboard/.env.local does not carry CLOUDINARY_URL; load it from the
-  // repo-root .env that the python script also reads.
-  try {
-    const envPath = path.join(process.cwd(), "..", ".env");
-    const text = readFileSync(envPath, "utf8");
-    for (const raw of text.split("\n")) {
-      const line = raw.trim();
-      if (!line || line.startsWith("#")) continue;
-      const m = line.match(/^([A-Z0-9_]+)\s*=\s*(.+)$/i);
-      if (!m) continue;
-      const [, key, valueRaw] = m;
-      if (key !== "CLOUDINARY_URL") continue;
-      process.env.CLOUDINARY_URL = valueRaw.replace(/^["']|["']$/g, "");
-      break;
+  // Try repo-root .env, then dashboard/.env.local. Next.js only auto-loads
+  // the latter, but we keep the source of truth one level up so the python
+  // scripts and the API share a single file.
+  for (const envPath of [
+    path.join(process.cwd(), "..", ".env"),
+    path.join(process.cwd(), ".env.local"),
+  ]) {
+    try {
+      const text = readFileSync(envPath, "utf8");
+      for (const raw of text.split("\n")) {
+        const line = raw.trim();
+        if (!line || line.startsWith("#")) continue;
+        const m = line.match(/^([A-Z0-9_]+)\s*=\s*(.+)$/i);
+        if (!m) continue;
+        const [, key, valueRaw] = m;
+        if (process.env[key]) continue;
+        process.env[key] = valueRaw.replace(/^["']|["']$/g, "");
+      }
+    } catch {
+      /* missing — try the next */
     }
-  } catch {
-    /* file missing — fall through */
   }
+}
+
+function configureCloudinary(): boolean {
+  ensureCloudinaryEnv();
+  const url = process.env.CLOUDINARY_URL;
+  if (!url) return false;
+  // The SDK's auto-config from CLOUDINARY_URL is unreliable inside the
+  // Next.js server (the env can be sealed before the lazy init runs), so
+  // parse the URL ourselves and call config() with explicit fields.
+  const m = url.match(/^cloudinary:\/\/([^:]+):([^@]+)@(.+?)\/?$/);
+  if (!m) return false;
+  cloudinary.config({
+    cloud_name: m[3],
+    api_key: m[1],
+    api_secret: m[2],
+    secure: true,
+  });
+  return true;
 }
 
 type CloudinaryVideo = {
@@ -43,15 +64,12 @@ type CloudinaryVideo = {
 };
 
 export async function GET() {
-  ensureCloudinaryEnv();
-  if (!process.env.CLOUDINARY_URL) {
+  if (!configureCloudinary()) {
     return NextResponse.json(
       { videos: [], error: "CLOUDINARY_URL not configured" },
       { status: 200 }
     );
   }
-
-  cloudinary.config(); // auto-reads CLOUDINARY_URL
 
   try {
     const result = (await cloudinary.api.resources({
