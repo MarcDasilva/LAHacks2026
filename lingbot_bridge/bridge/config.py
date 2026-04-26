@@ -28,6 +28,11 @@ USE_SDPA = os.environ.get("USE_SDPA", "0") == "1"
 INGEST_PORT = int(os.environ.get("INGEST_PORT", "8001"))
 DISABLE_INFERENCE = os.environ.get("INGEST_DISABLE_INFERENCE", "0") == "1"
 
+# Streaming viser viewer. The dashboard embeds this in an iframe so users see
+# the cloud build up frame-by-frame instead of waiting for the full export.
+VISER_PORT = int(os.environ.get("INGEST_VISER_PORT", "8890"))
+VISER_ENABLED = os.environ.get("INGEST_VISER_ENABLED", "1") == "1"
+
 # Session is considered "closed" by the runner if no new frames arrived
 # in this many seconds AND the client hasn't explicitly POSTed /close.
 SESSION_IDLE_SECONDS = int(os.environ.get("SESSION_IDLE_SECONDS", "30"))

@@ -9,6 +9,15 @@ cd "$(dirname "$0")/.."
 LINGBOT_REPO="${LINGBOT_REPO:-https://github.com/robbyant/lingbot-map.git}"
 LINGBOT_REF="${LINGBOT_REF:-main}"
 
+if ! command -v ffmpeg >/dev/null 2>&1; then
+    echo "==> installing ffmpeg (needed for /sessions/<id>/video upload)"
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get update -y && apt-get install -y ffmpeg
+    else
+        echo "    (apt-get not found — install ffmpeg manually if /video uploads fail)" >&2
+    fi
+fi
+
 mkdir -p vendor models
 
 if [ ! -d vendor/lingbot-map/.git ]; then

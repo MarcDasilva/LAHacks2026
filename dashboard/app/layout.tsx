@@ -24,7 +24,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "IMPULSE | Real-Time Product Command Center",
+  title: "IMPULSE",
   description:
     "IMPULSE helps teams capture live operational signals, prioritize what matters, and coordinate response from one real-time workspace.",
   keywords: [
@@ -37,7 +37,7 @@ export const metadata: Metadata = {
     "emergency coordination",
   ],
   openGraph: {
-    title: "IMPULSE | Real-Time Product Command Center",
+    title: "IMPULSE",
     description:
       "Unify alerts, priorities, and execution in one system built for high-stakes operations.",
     type: "website",
@@ -45,12 +45,17 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "IMPULSE | Real-Time Product Command Center",
+    title: "IMPULSE",
     description:
       "Turn real-time field signals into aligned, decisive team action.",
   },
   applicationName: "IMPULSE",
   category: "technology",
+  icons: {
+    icon: [{ url: "data:," }],
+    shortcut: [{ url: "data:," }],
+    apple: [{ url: "data:," }],
+  },
 };
 
 export default function RootLayout({
