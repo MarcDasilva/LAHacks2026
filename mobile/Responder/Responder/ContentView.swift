@@ -28,11 +28,23 @@ final class CameraViewModel: NSObject, ObservableObject {
     @Published private(set) var yamnetModelName = ""
     @Published private(set) var frameStreamStatus = "idle"
     @Published private(set) var streamedFrameCount = 0
+    @Published private(set) var memoryIndexStatus = "Starting local memory index..."
+    @Published private(set) var memoryDatabasePath = ""
+    @Published private(set) var indexedMemoryCount = 0
+    @Published private(set) var latestMemorySummary = "No memories indexed yet."
+    @Published private(set) var memorySearchResults: [MemorySearchResult] = []
+    @Published private(set) var consolidatedMemoryResults: [ConsolidatedMemoryResult] = []
+    @Published private(set) var memoryAnswerSummary: String?
+    @Published private(set) var memoryError: String?
+    @Published var memoryQuery = ""
+    @Published var speakMemoryAnswers = true
     private var lastStatusUpdateAudioBufferCount = 0
     private var transcriptLines: [String] = []
 
     let captureService = CameraCaptureService()
     let frameStreamSettings = FrameStreamSettings.fromEnvironment()
+    private let memoryIndex = try? OnDeviceMemoryIndex(cameraName: "Rear Camera")
+    private let memoryAnswerService: ZeticMemoryAnswerService
     private var yoloPipeline: ChunkedTranscriptPipeline!
     private var audioPipeline: ChunkedAudioTranscriptionPipeline!
     private var yamnetPipeline: ChunkedAudioTranscriptionPipeline!
@@ -40,6 +52,8 @@ final class CameraViewModel: NSObject, ObservableObject {
     nonisolated(unsafe) private var frameStreamClient: FrameStreamClient!
 
     override init() {
+        let inferenceSettings = InferenceModelSettings.fromEnvironment()
+        self.memoryAnswerService = ZeticMemoryAnswerService(settings: inferenceSettings)
         let inference = InferenceEngineFactory.makeEngines()
         super.init()
         print("[Responder][STT] ViewModel initialized. sttOnHold=\(inference.sttOnHold)")
@@ -64,6 +78,7 @@ final class CameraViewModel: NSObject, ObservableObject {
                     self?.latestDetections = text.isEmpty ? "[no detections]" : text
                     self?.yoloError = nil
                     self?.lastInferenceError = self?.sttError
+                    self?.ingestVisionMemory(payload)
                     self?.frameStreamClient.sendModelOutput(kind: "yolo", payload: payload)
                 }
             },
@@ -103,6 +118,7 @@ final class CameraViewModel: NSObject, ObservableObject {
                             tensorCount: payload.output.tensorCount
                         )
                     )
+                    self.ingestTranscriptMemory(payload)
                     self.frameStreamClient.sendModelOutput(kind: "stt", payload: frontendPayload)
                     if self.speakTranscript == true,
                        text != "[stt_unavailable] Decoder returned no tokens.",
@@ -141,6 +157,7 @@ final class CameraViewModel: NSObject, ObservableObject {
                     self?.latestYamnetOutput = text.isEmpty ? "[empty yamnet output]" : text
                     self?.yamnetError = nil
                     self?.lastInferenceError = self?.sttError ?? self?.yoloError
+                    self?.ingestAudioMemory(payload)
                     self?.frameStreamClient.sendModelOutput(kind: "yamnet", payload: payload)
                 }
             },
@@ -171,6 +188,7 @@ final class CameraViewModel: NSObject, ObservableObject {
             }
         )
         captureService.delegate = self
+        bootstrapMemoryIndex()
     }
 
     func startCamera() {
@@ -304,6 +322,182 @@ final class CameraViewModel: NSObject, ObservableObject {
     private func resetTranscriptDisplay(_ text: String) {
         transcriptLines.removeAll(keepingCapacity: true)
         latestTranscript = text
+    }
+
+    func runMemorySearch() {
+        let query = memoryQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            memorySearchResults = []
+            consolidatedMemoryResults = []
+            memoryAnswerSummary = nil
+            memoryError = nil
+            return
+        }
+
+        guard let memoryIndex else {
+            memoryError = "Local memory index failed to initialize."
+            return
+        }
+
+        memoryIndexStatus = "Searching on-device memories..."
+        memoryError = nil
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let results = try await memoryIndex.search(query)
+                let fallbackAnswer = MemorySearchSummarizer.makeAnswer(for: query, results: results)
+                let snapshot = try await memoryIndex.prepare()
+                await MainActor.run {
+                    self.memorySearchResults = results
+                    self.consolidatedMemoryResults = fallbackAnswer.consolidatedResults
+                    self.memoryAnswerSummary = fallbackAnswer.summaryText
+                    self.applyMemorySnapshot(snapshot, fallbackStatus: results.isEmpty ? "No matching memories yet" : "Summarizing with Zetic LLM...")
+                }
+
+                let answer = await self.memoryAnswerService.summarize(query: query, fallback: fallbackAnswer)
+
+                await MainActor.run {
+                    self.consolidatedMemoryResults = answer.consolidatedResults
+                    self.memoryAnswerSummary = answer.summaryText
+                    self.applyMemorySnapshot(snapshot, fallbackStatus: results.isEmpty ? "No matching memories yet" : "Semantic search complete")
+                    if self.speakMemoryAnswers, !answer.spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        self.speechPlayer.speak(answer.spokenText)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.memoryError = Self.describeMemoryError(error)
+                    self.memoryIndexStatus = "Search failed"
+                }
+            }
+        }
+    }
+
+    func clearMemoryDatabase() {
+        guard let memoryIndex else {
+            memoryError = "Local memory index failed to initialize."
+            return
+        }
+
+        memoryIndexStatus = "Clearing local memories..."
+        memoryError = nil
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let snapshot = try await memoryIndex.clearAllMemories()
+                await MainActor.run {
+                    self.memoryQuery = ""
+                    self.memorySearchResults = []
+                    self.consolidatedMemoryResults = []
+                    self.memoryAnswerSummary = nil
+                    self.applyMemorySnapshot(snapshot, fallbackStatus: "Local memory database cleared")
+                }
+            } catch {
+                await MainActor.run {
+                    self.memoryError = Self.describeMemoryError(error)
+                    self.memoryIndexStatus = "Clear failed"
+                }
+            }
+        }
+    }
+
+    private func bootstrapMemoryIndex() {
+        guard let memoryIndex else {
+            memoryIndexStatus = "Local memory index unavailable"
+            memoryError = "Unable to start the on-device SQLite vector database."
+            return
+        }
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let snapshot = try await memoryIndex.prepare()
+                await MainActor.run {
+                    self.applyMemorySnapshot(snapshot, fallbackStatus: "Ready for semantic search")
+                }
+            } catch {
+                await MainActor.run {
+                    self.memoryIndexStatus = "Memory bootstrap failed"
+                    self.memoryError = Self.describeMemoryError(error)
+                }
+            }
+        }
+    }
+
+    private func ingestVisionMemory(_ payload: TranscriptChunk) {
+        guard let memoryIndex else { return }
+        let boxes = DetectionOverlayStore.shared.currentBoxes()
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let snapshot = try await memoryIndex.ingestVision(payload, boxes: boxes)
+                await MainActor.run {
+                    self.applyMemorySnapshot(snapshot)
+                }
+            } catch {
+                await MainActor.run {
+                    self.memoryError = Self.describeMemoryError(error)
+                    self.memoryIndexStatus = "Vision memory ingest failed"
+                }
+            }
+        }
+    }
+
+    private func ingestTranscriptMemory(_ payload: TranscriptChunk) {
+        guard let memoryIndex else { return }
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let snapshot = try await memoryIndex.ingestTranscript(payload)
+                await MainActor.run {
+                    self.applyMemorySnapshot(snapshot)
+                }
+            } catch {
+                await MainActor.run {
+                    self.memoryError = Self.describeMemoryError(error)
+                    self.memoryIndexStatus = "Transcript memory ingest failed"
+                }
+            }
+        }
+    }
+
+    private func ingestAudioMemory(_ payload: TranscriptChunk) {
+        guard let memoryIndex else { return }
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let snapshot = try await memoryIndex.ingestAudioClassification(payload)
+                await MainActor.run {
+                    self.applyMemorySnapshot(snapshot)
+                }
+            } catch {
+                await MainActor.run {
+                    self.memoryError = Self.describeMemoryError(error)
+                    self.memoryIndexStatus = "Audio memory ingest failed"
+                }
+            }
+        }
+    }
+
+    private func applyMemorySnapshot(_ snapshot: MemoryIndexSnapshot, fallbackStatus: String? = nil) {
+        indexedMemoryCount = snapshot.indexedCount
+        memoryDatabasePath = snapshot.databasePath
+        latestMemorySummary = snapshot.latestSummary
+        memoryIndexStatus = fallbackStatus ?? "Indexed \(snapshot.indexedCount) memories locally with sqlite-vec \(snapshot.vectorVersion)"
+        memoryError = nil
+    }
+
+    private static func describeMemoryError(_ error: Error) -> String {
+        let described = String(describing: error)
+        if described.contains("SQLiteVec") || described.contains("Error ") {
+            return described
+        }
+        return (error as NSError).localizedDescription
     }
 }
 
@@ -480,6 +674,7 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity)
 
                 Toggle("Speak transcript (TTS)", isOn: $viewModel.speakTranscript)
+                Toggle("Speak memory answers (TTS)", isOn: $viewModel.speakMemoryAnswers)
 
                 VStack(spacing: 12) {
                     pipelineCard(
@@ -517,6 +712,113 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("On-Device Memory Search")
+                                .font(.headline)
+                            Text("SQLite + vector search on the phone. Ask things like “where did I see a person?”")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Text("\(viewModel.indexedMemoryCount) memories")
+                            .font(.caption.bold())
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(Color.black.opacity(0.08), in: Capsule())
+                    }
+
+                    TextField("Where did I see a person near the door?", text: $viewModel.memoryQuery)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit {
+                            viewModel.runMemorySearch()
+                        }
+
+                    Button("Search Memories") {
+                        viewModel.runMemorySearch()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.indigo)
+
+                    Button("Clear DB") {
+                        viewModel.clearMemoryDatabase()
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.red)
+
+                    Text(viewModel.memoryIndexStatus)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    Text("Latest memory summary: \(viewModel.latestMemorySummary)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    if !viewModel.memoryDatabasePath.isEmpty {
+                        Text("Database: \(viewModel.memoryDatabasePath)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if let memoryAnswerSummary = viewModel.memoryAnswerSummary, !memoryAnswerSummary.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Summary")
+                                .font(.subheadline.weight(.semibold))
+                            Text(memoryAnswerSummary)
+                                .font(.footnote)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .background(Color.indigo.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+
+                    if !viewModel.consolidatedMemoryResults.isEmpty {
+                        ForEach(viewModel.consolidatedMemoryResults) { result in
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Text(result.timeRangeLabel)
+                                        .font(.subheadline.weight(.semibold))
+                                    Spacer()
+                                    Text(result.bestWhereAnswer)
+                                        .font(.caption.weight(.semibold))
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color.blue.opacity(0.12), in: Capsule())
+                                }
+
+                                Text(result.occurrenceCount == 1 ? "1 memory" : "\(result.occurrenceCount) merged memories")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+
+                                if !result.detectionSummary.isEmpty {
+                                    Text("Seen: \(result.detectionSummary)")
+                                        .font(.footnote)
+                                }
+
+                                if !result.transcriptSummary.isEmpty {
+                                    Text("Heard: \(result.transcriptSummary)")
+                                        .font(.footnote)
+                                }
+
+                                if !result.audioSummary.isEmpty {
+                                    Text("Ambient: \(result.audioSummary)")
+                                        .font(.footnote)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .background(Color.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                    } else if !viewModel.memoryQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("No matching memories yet.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(12)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
                 if viewModel.permissionDenied {
                     Text("Camera or microphone permission denied. Enable access in Settings to continue.")
                         .foregroundStyle(.red)
@@ -525,6 +827,13 @@ struct ContentView: View {
 
                 if let lastInferenceError = viewModel.lastInferenceError {
                     Text(lastInferenceError)
+                        .foregroundStyle(.red)
+                        .font(.footnote)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                if let memoryError = viewModel.memoryError {
+                    Text(memoryError)
                         .foregroundStyle(.red)
                         .font(.footnote)
                         .frame(maxWidth: .infinity, alignment: .leading)

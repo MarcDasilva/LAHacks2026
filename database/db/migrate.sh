@@ -18,7 +18,22 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-PG_DSN="${PG_DSN:-host=127.0.0.1 port=5433 dbname=lingbot user=lingbot password=lingbot}"
+default_dsn() {
+    local base="host=127.0.0.1 dbname=lingbot user=lingbot password=lingbot"
+    if command -v pg_isready >/dev/null 2>&1; then
+        if pg_isready -q -h 127.0.0.1 -p 5433; then
+            echo "$base port=5433"
+            return
+        fi
+        if pg_isready -q -h 127.0.0.1 -p 5432; then
+            echo "$base port=5432"
+            return
+        fi
+    fi
+    echo "$base port=5433"
+}
+
+PG_DSN="${PG_DSN:-$(default_dsn)}"
 MIGRATIONS_DIR="db/migrations"
 
 psql_run() { psql "$PG_DSN" -v ON_ERROR_STOP=1 -X -q "$@"; }

@@ -70,41 +70,25 @@
             ReferencedContainer = "container:Responder.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
-      <CommandLineArguments>
-         <CommandLineArgument
-            argument = ""
-            isEnabled = "YES">
-         </CommandLineArgument>
-      </CommandLineArguments>
       <EnvironmentVariables>
-         <EnvironmentVariable
-            key = "RESPONDER_AUDIO_ENGINE"
-            value = "APPLE"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-         <EnvironmentVariable
-            key = "RESPONDER_STT_TIMEOUT_SECONDS"
-            value = "12"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-         <EnvironmentVariable
-            key = "RESPONDER_AUDIO_USER_PROMPT"
-            value = "Transcribe this audio in English."
-            isEnabled = "YES">
-         </EnvironmentVariable>
-         <EnvironmentVariable
-            key = "RESPONDER_STT_ON_HOLD"
-            value = "false"
-            isEnabled = "YES">
-         </EnvironmentVariable>
          <EnvironmentVariable
             key = "ZETIC_PERSONAL_KEY"
             value = "dev_64a4ff00f42f4d518d241f4f89513c49"
             isEnabled = "YES">
          </EnvironmentVariable>
          <EnvironmentVariable
-            key = "RESPONDER_FRAME_STREAM_ENABLED"
-            value = "true"
+            key = "ZETIC_AUDIO_ENCODER_MODEL_NAME"
+            value = "zetic/qwen2.5_omni_audio_encoder_chunk_f16"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "RESPONDER_FRAME_STREAM_ROOM_ID"
+            value = "main-camera"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "RESPONDER_AUDIO_SYSTEM_PROMPT"
+            value = "You are a precise audio transcription assistant."
             isEnabled = "YES">
          </EnvironmentVariable>
          <EnvironmentVariable
@@ -114,17 +98,7 @@
          </EnvironmentVariable>
          <EnvironmentVariable
             key = "RESPONDER_FRAME_STREAM_ROOM_ID"
-            value = "cam-03"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-         <EnvironmentVariable
-            key = "RESPONDER_FRAME_STREAM_FPS"
-            value = "15"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-         <EnvironmentVariable
-            key = "RESPONDER_FRAME_STREAM_JPEG_QUALITY"
-            value = ".4"
+            value = "main-camera"
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>
