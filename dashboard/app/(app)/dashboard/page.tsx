@@ -14,6 +14,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import CameraFrameViewer from "@/app/components/CameraFrameViewer";
 import { PointCloudViewer } from "@/app/components/ui/PointCloudViewer";
 import { GaussianSplatViewer } from "@/app/components/ui/GaussianSplatViewer";
+import GlassSurface from "@/components/GlassSurface";
+import Grainient from "@/components/Grainient";
 import { Activity, ChevronRight } from "lucide-react";
 
 type RoomSummary = {
@@ -135,6 +137,7 @@ export default function Dashboard() {
     shouldBoot ? "visible" : "hidden"
   );
   const [contentVisible, setContentVisible] = useState(!shouldBoot);
+  const [worldOpen, setWorldOpen] = useState(false);
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [fetchState, setFetchState] = useState<"loading" | "ready" | "error">("loading");
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
@@ -297,8 +300,34 @@ export default function Dashboard() {
       )}
 
       <div className="pointer-events-none absolute inset-0 z-0">
-        <div className="absolute -top-28 -left-24 h-[460px] w-[460px] rounded-full bg-[var(--lavender)]/[0.08] blur-[72px]" />
-        <div className="absolute bottom-0 right-0 h-[340px] w-[340px] rounded-full bg-[oklch(0.65_0.20_350)]/[0.08] blur-[60px]" />
+        <div className="relative h-full w-full">
+          <Grainient
+            color1="#ffffff"
+            color2="#5f5f5f"
+            color3="#fafafa"
+            timeSpeed={0.25}
+            colorBalance={0}
+            warpStrength={1}
+            warpFrequency={5}
+            warpSpeed={2}
+            warpAmplitude={50}
+            blendAngle={0}
+            blendSoftness={0.05}
+            rotationAmount={500}
+            noiseScale={2}
+            grainAmount={0.1}
+            grainScale={2}
+            grainAnimated={false}
+            contrast={1.5}
+            gamma={1}
+            saturation={1}
+            centerX={0}
+            centerY={0}
+            zoom={0.9}
+            className="h-full w-full"
+          />
+        </div>
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.14),rgba(255,255,255,0.04)_38%,rgba(17,17,17,0.08))]" />
       </div>
       <div className="pointer-events-none absolute inset-0 z-0 dot-grid" />
 
@@ -322,31 +351,43 @@ export default function Dashboard() {
           </div>
 
           <div className="mt-3 flex min-h-0 flex-1 flex-col gap-3">
-            <section className="pointer-events-auto min-h-0 overflow-auto">
-              <div className="flex min-h-full flex-col gap-3 lg:flex-row">
-                <div className="flex min-w-0 flex-col gap-3 lg:w-1/2 lg:flex-1">
+            <section className="pointer-events-auto min-h-0 flex-1 overflow-hidden">
+              <div className="flex h-full min-h-0 flex-col gap-3 lg:flex-row">
+                <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto lg:w-1/2 lg:flex-1">
                   {activeRooms.length > 0 ? (
-                    selectedRoom ? <SelectedCameraPanel room={selectedRoom} /> : null
+                    selectedRoom ? (
+                      <SelectedCameraPanel
+                        room={selectedRoom}
+                        worldOpen={worldOpen}
+                        onToggleWorld={() => setWorldOpen((value) => !value)}
+                      />
+                    ) : null
                   ) : (
-                    <EmptyCameraPreview />
+                    <EmptyCameraPreview
+                      title={fetchState === "error" ? "Signal relay unavailable" : "No connected cameras"}
+                      description={
+                        fetchState === "error"
+                          ? "The dashboard could not reach the frame relay server."
+                          : "As soon as the iPhone app starts streaming camera frames, they will appear here."
+                      }
+                      worldOpen={worldOpen}
+                      onToggleWorld={() => setWorldOpen((value) => !value)}
+                    />
                   )}
-
-                  {previewRooms.length > 0 ? (
-                    <div className="flex min-h-0 w-full shrink-0 gap-3 overflow-x-auto lg:overflow-y-auto lg:overflow-x-hidden">
-                      {previewRooms.map((room) => (
-                        <CameraPreviewThumb
-                          key={room.roomId}
-                          room={room}
-                          onSelect={() => setSelectedRoomId(room.roomId)}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
                 </div>
 
-                <div className="flex min-w-0 flex-col gap-3 lg:w-1/2 lg:flex-1">
-                  <SparseSplatPanel />
-                  <VideoSearchPanel />
+                <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto lg:w-1/2 lg:flex-1">
+                  {worldOpen ? (
+                    <>
+                      <SparseSplatPanel />
+                      <VideoSearchPanel />
+                    </>
+                  ) : activeRooms.length > 0 ? (
+                    <AdditionalCamerasPanel
+                      rooms={previewRooms}
+                      onSelectRoom={(roomId) => setSelectedRoomId(roomId)}
+                    />
+                  ) : null}
                 </div>
               </div>
             </section>
@@ -358,53 +399,134 @@ export default function Dashboard() {
   );
 }
 
-function SelectedCameraPanel({ room }: { room: RoomSummary }) {
+function SelectedCameraPanel({
+  room,
+  worldOpen,
+  onToggleWorld,
+}: {
+  room: RoomSummary;
+  worldOpen: boolean;
+  onToggleWorld: () => void;
+}) {
   const yoloPayload = room.modelOutputs?.yolo ?? null;
   const yamnetPayload = room.modelOutputs?.yamnet ?? null;
   const sttPayload = room.modelOutputs?.stt ?? null;
 
   return (
-    <div className="flex min-h-[min(78vh,820px)] w-full min-w-0 flex-1 flex-col overflow-hidden rounded-[16px] border border-[var(--foreground)]/28 bg-white/22 shadow-[0_1px_0_rgba(255,255,255,0.22)_inset,0_18px_48px_rgba(15,15,15,0.08)] transition-[width,transform,box-shadow] duration-300 ease-out">
-      <div className="flex items-center justify-between border-b border-[var(--border)]/70 px-3 py-2.5">
-        <div className="min-w-0">
-          <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
-            {room.roomId}
-          </p>
-          <p className="mt-1 truncate text-[13px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
-            Sender {room.senderId ?? "unknown"}
-          </p>
-        </div>
-        <StatusPill label="live" />
-      </div>
-
-      <div className="bg-black/8 p-3 transition-[padding] duration-300">
-        <div className="relative aspect-video overflow-hidden rounded-[14px] border border-[var(--border)]/55 bg-black/12 shadow-[0_1px_0_rgba(255,255,255,0.16)_inset] transition-[height] duration-300">
-          <CameraFrameViewer roomId={room.roomId} />
-        </div>
-      </div>
-
-      <div className="overflow-hidden transition-[max-height,opacity,transform] duration-300 ease-out max-h-[420px] opacity-100">
-        <div className="flex items-center justify-between border-y border-[var(--border)]/70 px-3 py-2.5">
-          <div className="flex items-center gap-2">
-            <Activity size={14} className="text-[var(--foreground)]" />
-            <p className="text-[12px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
-              Output body
+    <GlassSurface
+      width="100%"
+      height="100%"
+      borderRadius={16}
+      saturation={1.18}
+      backgroundOpacity={0.1}
+      blur={4}
+      className="alerts-glass flex min-h-[min(78vh,820px)] w-full min-w-0 flex-1 flex-col overflow-hidden transition-[width,transform,box-shadow] duration-300 ease-out"
+    >
+      <div className="flex h-full min-h-0 flex-col overflow-hidden">
+        <div className="flex items-center justify-between border-b border-[var(--border)]/70 px-3 py-2.5">
+          <div className="min-w-0">
+            <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
+              {room.roomId}
+            </p>
+            <p className="mt-1 truncate text-[13px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
+              Sender {room.senderId ?? "unknown"}
             </p>
           </div>
-          <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
-            <span>{room.viewerCount} viewers</span>
-            <span className="text-[var(--muted-foreground)]/55">/</span>
-            <span>{room.lastFrameAt ? "live payloads" : "awaiting payloads"}</span>
+          <div className="flex items-center gap-2">
+            <StatusPill label="live" />
+            <WorldButton active={worldOpen} onClick={onToggleWorld} />
           </div>
         </div>
 
-        <div className="grid gap-3 px-3 py-3 lg:grid-cols-3">
-          <ModelOutputSection kind="YOLO" payload={yoloPayload} emptyLabel="Waiting for detections from the phone." />
-          <ModelOutputSection kind="YAMNet" payload={yamnetPayload} emptyLabel="Waiting for audio classification from the phone." />
-          <ModelOutputSection kind="STT" payload={sttPayload} emptyLabel="Waiting for transcript text from the phone." />
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <div className="bg-black/8 p-3 transition-[padding] duration-300">
+            <div className="relative aspect-video overflow-hidden rounded-[14px] border border-[var(--border)]/55 bg-black/12 shadow-[0_1px_0_rgba(255,255,255,0.16)_inset] transition-[height] duration-300">
+              <CameraFrameViewer roomId={room.roomId} />
+            </div>
+          </div>
+
+          <div className="overflow-hidden transition-[max-height,opacity,transform] duration-300 ease-out max-h-[420px] opacity-100">
+            <div className="flex items-center justify-between border-y border-[var(--border)]/70 px-3 py-2.5">
+              <div className="flex items-center gap-2">
+                <Activity size={14} className="text-[var(--foreground)]" />
+                <p className="text-[12px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
+                  Output body
+                </p>
+              </div>
+              <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
+                <span>{room.viewerCount} viewers</span>
+                <span className="text-[var(--muted-foreground)]/55">/</span>
+                <span>{room.lastFrameAt ? "live payloads" : "awaiting payloads"}</span>
+              </div>
+            </div>
+
+            <div className="grid gap-3 px-3 py-3 lg:grid-cols-3">
+              <ModelOutputSection kind="YOLO" payload={yoloPayload} emptyLabel="Waiting for detections from the phone." />
+              <ModelOutputSection kind="YAMNet" payload={yamnetPayload} emptyLabel="Waiting for audio classification from the phone." />
+              <ModelOutputSection kind="STT" payload={sttPayload} emptyLabel="Waiting for transcript text from the phone." />
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+    </GlassSurface>
+  );
+}
+
+function AdditionalCamerasPanel({
+  rooms,
+  onSelectRoom,
+}: {
+  rooms: RoomSummary[];
+  onSelectRoom: (roomId: string) => void;
+}) {
+  return (
+    <GlassSurface
+      width="100%"
+      height="100%"
+      borderRadius={16}
+      saturation={1.18}
+      backgroundOpacity={0.1}
+      blur={4}
+      className="alerts-glass flex min-h-[min(78vh,820px)] min-w-0 flex-1 flex-col overflow-hidden"
+    >
+      <div className="flex h-full min-h-0 flex-col overflow-hidden">
+        <div className="flex items-center justify-between border-b border-[var(--primary)]/55 px-3 py-2.5">
+          <div className="min-w-0">
+            <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
+              additional_cameras
+            </p>
+            <p className="mt-1 truncate text-[13px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
+              {rooms.length > 0 ? "Other live iPhone feeds" : "No extra live feeds yet"}
+            </p>
+          </div>
+          <StatusPill label={rooms.length > 0 ? `${rooms.length} live` : "idle"} />
+        </div>
+
+        {rooms.length > 0 ? (
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+            {rooms.map((room) => (
+              <CameraPreviewThumb
+                key={room.roomId}
+                room={room}
+                stacked
+                onSelect={() => onSelectRoom(room.roomId)}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-1 items-center justify-center p-6">
+            <div className="max-w-sm rounded-[14px] border border-dashed border-[var(--primary)]/45 bg-white/18 px-4 py-4 text-center">
+              <p className="text-[13px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
+                Waiting for more camera streams
+              </p>
+              <p className="mt-2 text-[12px] font-semibold text-[var(--muted-foreground)]">
+                When another iPhone joins the relay, it will appear here until you open World.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </GlassSurface>
   );
 }
 
@@ -789,72 +911,82 @@ function SparseSplatPanel() {
                 : "no splat";
 
   return (
-    <div className="flex min-h-[min(60vh,640px)] min-w-0 flex-1 flex-col overflow-hidden rounded-[16px] border border-[var(--primary)] bg-white/22 shadow-[0_1px_0_rgba(255,255,255,0.22)_inset,0_18px_48px_rgba(15,15,15,0.08)] transition-[width,transform,box-shadow] duration-300 ease-out">
-      <div className="flex items-center justify-between border-b border-[var(--primary)]/70 px-3 py-2.5">
-        <div className="min-w-0">
-          <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
-            sparse_splat
-          </p>
-          <p className="mt-1 truncate text-[13px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
-            {record?.label ?? selected?.videoId ?? "no video selected"}
-          </p>
+    <GlassSurface
+      width="100%"
+      height="100%"
+      borderRadius={16}
+      saturation={1.18}
+      backgroundOpacity={0.1}
+      blur={4}
+      className="alerts-glass flex min-h-[min(72vh,760px)] min-w-0 flex-none flex-col overflow-hidden transition-[width,transform,box-shadow] duration-300 ease-out"
+    >
+      <div className="flex h-full min-h-0 flex-col overflow-hidden">
+        <div className="flex items-center justify-between border-b border-[var(--primary)]/70 px-3 py-2.5">
+          <div className="min-w-0">
+            <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
+              sparse_splat
+            </p>
+            <p className="mt-1 truncate text-[13px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
+              {record?.label ?? selected?.videoId ?? "no video selected"}
+            </p>
+          </div>
+          <StatusPill label={statusLabel} />
         </div>
-        <StatusPill label={statusLabel} />
-      </div>
 
-      <div className="bg-black/8 p-3 transition-[padding] duration-300">
-        <div className="relative aspect-video overflow-hidden rounded-[14px] border border-[var(--primary)]/55 bg-black/12 shadow-[0_1px_0_rgba(255,255,255,0.16)_inset] transition-[height] duration-300">
-          {splatUrl ? (
-            <GaussianSplatViewer
-              key={selected?.videoId ?? "none"}
-              url={splatUrl}
-              flipUp
-            />
-          ) : splatStatus === "failed" ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-[linear-gradient(135deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))]">
-              <div className="rounded-[12px] border border-[var(--primary)]/45 bg-black/45 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-white/85">
-                {`Splat failed: ${record?.splatError ?? record?.error ?? "unknown"}`}
+        <div className="bg-black/8 p-3 transition-[padding] duration-300">
+          <div className="relative aspect-video overflow-hidden rounded-[14px] border border-[var(--primary)]/55 bg-black/12 shadow-[0_1px_0_rgba(255,255,255,0.16)_inset] transition-[height] duration-300">
+            {splatUrl ? (
+              <GaussianSplatViewer
+                key={selected?.videoId ?? "none"}
+                url={splatUrl}
+                flipUp
+              />
+            ) : splatStatus === "failed" ? (
+              <div className="absolute inset-0 flex items-center justify-center bg-[linear-gradient(135deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))]">
+                <div className="rounded-[12px] border border-[var(--primary)]/45 bg-black/45 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-white/85">
+                  {`Splat failed: ${record?.splatError ?? record?.error ?? "unknown"}`}
+                </div>
               </div>
-            </div>
-          ) : splatStatus === "pending" || splatStatus === "training" ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-[linear-gradient(135deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))]">
-              <div className="rounded-[12px] border border-[var(--primary)]/45 bg-black/45 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-white/85">
-                Training Gaussian splat… (~5–10 min)
+            ) : splatStatus === "pending" || splatStatus === "training" ? (
+              <div className="absolute inset-0 flex items-center justify-center bg-[linear-gradient(135deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))]">
+                <div className="rounded-[12px] border border-[var(--primary)]/45 bg-black/45 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-white/85">
+                  Training Gaussian splat… (~5–10 min)
+                </div>
               </div>
-            </div>
-          ) : lbmpUrl && status === "ready" ? (
-            <PointCloudViewer
-              key={selected?.videoId ?? "none"}
-              url={lbmpUrl}
-              pointSizeFactor={0.0014}
-              pathUrl={pathUrl ?? undefined}
-              lockElevation
-              flipUp
-            />
-          ) : (
-            <div className="absolute inset-0 flex items-center justify-center bg-[linear-gradient(135deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))]">
-              <div className="rounded-[12px] border border-[var(--primary)]/45 bg-black/45 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-white/85">
-                {status === "processing"
-                  ? "Building sparse splat…"
-                  : status === "failed"
-                    ? `Splat failed: ${record?.error ?? "unknown"}`
-                    : "No splat for this video yet"}
+            ) : lbmpUrl && status === "ready" ? (
+              <PointCloudViewer
+                key={selected?.videoId ?? "none"}
+                url={lbmpUrl}
+                pointSizeFactor={0.0014}
+                pathUrl={pathUrl ?? undefined}
+                lockElevation
+                flipUp
+              />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center bg-[linear-gradient(135deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))]">
+                <div className="rounded-[12px] border border-[var(--primary)]/45 bg-black/45 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-white/85">
+                  {status === "processing"
+                    ? "Building sparse splat…"
+                    : status === "failed"
+                      ? `Splat failed: ${record?.error ?? "unknown"}`
+                      : "No splat for this video yet"}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-      </div>
 
-      <div className="border-t border-[var(--primary)]/70 px-3 py-2.5">
-        <div className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
-          <span>colmap · sparse · path</span>
-          <span className="text-[var(--muted-foreground)]/55">/</span>
-          <span className="truncate">
-            {record?.points ? `${record.points.toLocaleString()} pts` : statusLabel}
-          </span>
+        <div className="border-t border-[var(--primary)]/70 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
+            <span>colmap · sparse · path</span>
+            <span className="text-[var(--muted-foreground)]/55">/</span>
+            <span className="truncate">
+              {record?.points ? `${record.points.toLocaleString()} pts` : statusLabel}
+            </span>
+          </div>
         </div>
       </div>
-    </div>
+    </GlassSurface>
   );
 }
 
@@ -944,135 +1076,185 @@ function VideoSearchPanel() {
   }, [active]);
 
   return (
-    <div className="min-w-0 overflow-hidden rounded-[16px] border border-[var(--primary)] bg-white/22 shadow-[0_1px_0_rgba(255,255,255,0.22)_inset,0_18px_48px_rgba(15,15,15,0.08)]">
-      <div className="flex items-center justify-between border-b border-[var(--primary)]/70 px-3 py-2.5">
-        <div className="min-w-0">
-          <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
-            video_search
-          </p>
-          <p className="mt-1 truncate text-[13px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
-            {selectedLabel ? `Search · ${selectedLabel}` : "Natural-language clip retrieval"}
-          </p>
-        </div>
-        <span className="rounded-[9px] border border-[var(--primary)]/60 bg-white/20 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--foreground)]">
-          GEMMA
-        </span>
-      </div>
-
-      <div className="flex items-center gap-2 border-b border-[var(--primary)]/40 px-3 py-2.5">
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") submit();
-          }}
-          placeholder="e.g. someone walking through a doorway"
-          className="min-w-0 flex-1 rounded-[10px] border border-[var(--primary)]/55 bg-white/85 px-3 py-1.5 text-[12px] font-semibold tracking-[-0.01em] text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]/70 focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/35"
-        />
-        <button
-          type="button"
-          onClick={submit}
-          disabled={status === "searching"}
-          className="rounded-[10px] border border-[var(--primary)]/70 bg-[var(--primary)] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] font-display text-[var(--primary-foreground)] shadow-[0_1px_0_rgba(255,255,255,0.18)_inset] transition hover:opacity-90 disabled:opacity-50"
-        >
-          {status === "searching" ? "Searching…" : "Search"}
-        </button>
-      </div>
-
-      {active ? (
-        <div className="bg-black/8 p-3">
-          <div className="relative aspect-video overflow-hidden rounded-[14px] border border-[var(--primary)]/55 bg-black">
-            <video
-              key={`${active.videoId}-${active.startSec}`}
-              ref={videoRef}
-              src={`${active.videoUrl}#t=${active.startSec},${active.endSec}`}
-              autoPlay
-              muted
-              playsInline
-              className="absolute inset-0 h-full w-full object-cover"
-            />
-            <div className="pointer-events-none absolute left-3 top-3 z-10">
-              <span className="rounded-[9px] border border-[var(--primary)]/60 bg-black/55 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white">
-                {active.startSec.toFixed(1)}s – {active.endSec.toFixed(1)}s
-              </span>
-            </div>
+    <GlassSurface
+      width="100%"
+      height="100%"
+      borderRadius={16}
+      saturation={1.18}
+      backgroundOpacity={0.1}
+      blur={4}
+      className="alerts-glass min-h-[320px] min-w-0 flex-none overflow-hidden"
+    >
+      <div className="flex h-full min-h-0 flex-col overflow-hidden">
+        <div className="flex items-center justify-between border-b border-[var(--primary)]/70 px-3 py-2.5">
+          <div className="min-w-0">
+            <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
+              video_search
+            </p>
+            <p className="mt-1 truncate text-[13px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
+              {selectedLabel ? `Search · ${selectedLabel}` : "Natural-language clip retrieval"}
+            </p>
           </div>
-          <p className="mt-2 line-clamp-2 text-[12px] font-semibold tracking-[-0.01em] text-[var(--foreground)]">
-            {active.caption}
-          </p>
+          <span className="rounded-[9px] border border-[var(--primary)]/60 bg-white/20 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--foreground)]">
+            GEMMA
+          </span>
         </div>
-      ) : null}
 
-      <div className="max-h-[260px] overflow-y-auto">
-        {status === "error" ? (
-          <p className="px-3 py-3 text-[12px] font-semibold text-[oklch(0.55_0.18_25)]">
-            {errorMsg ?? "search failed"}
-          </p>
-        ) : status === "empty" ? (
-          <p className="px-3 py-3 text-[12px] font-semibold text-[var(--muted-foreground)]">
-            no matching clips. try a different query or run the indexer.
-          </p>
-        ) : results.length === 0 ? (
-          <p className="px-3 py-3 text-[12px] font-semibold text-[var(--muted-foreground)]">
-            describe a moment in <span className="font-mono">{selectedLabel ?? "the selected video"}</span> to find it.
-          </p>
-        ) : (
-          results.map((r, i) => {
-            const selected = active && active.videoId === r.videoId && active.startSec === r.startSec;
-            return (
-              <button
-                key={`${r.videoId}-${r.startSec}-${i}`}
-                type="button"
-                onClick={() => setActive(r)}
-                className={`flex w-full items-start justify-between gap-3 border-b border-[var(--primary)]/15 px-3 py-2 text-left transition ${
-                  selected ? "bg-[var(--primary)]/8" : "hover:bg-[var(--primary)]/6"
-                }`}
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
-                    {r.videoId.split("/").pop()} · {r.startSec.toFixed(1)}s
-                  </p>
-                  <p className="mt-1 line-clamp-2 text-[12px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
-                    {r.caption}
-                  </p>
-                </div>
-                <span className="shrink-0 rounded-[8px] border border-[var(--primary)]/55 bg-white/20 px-2 py-0.5 text-[10px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
-                  {(r.score * 100).toFixed(0)}
+        <div className="flex items-center gap-2 border-b border-[var(--primary)]/40 px-3 py-2.5">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submit();
+            }}
+            placeholder="e.g. someone walking through a doorway"
+            className="min-w-0 flex-1 rounded-[10px] border border-[var(--primary)]/55 bg-white/85 px-3 py-1.5 text-[12px] font-semibold tracking-[-0.01em] text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]/70 focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/35"
+          />
+          <button
+            type="button"
+            onClick={submit}
+            disabled={status === "searching"}
+            className="rounded-[10px] border border-[var(--primary)]/70 bg-[var(--primary)] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] font-display text-[var(--primary-foreground)] shadow-[0_1px_0_rgba(255,255,255,0.18)_inset] transition hover:opacity-90 disabled:opacity-50"
+          >
+            {status === "searching" ? "Searching…" : "Search"}
+          </button>
+        </div>
+
+        {active ? (
+          <div className="bg-black/8 p-3">
+            <div className="relative aspect-video overflow-hidden rounded-[14px] border border-[var(--primary)]/55 bg-black">
+              <video
+                key={`${active.videoId}-${active.startSec}`}
+                ref={videoRef}
+                src={`${active.videoUrl}#t=${active.startSec},${active.endSec}`}
+                autoPlay
+                muted
+                playsInline
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+              <div className="pointer-events-none absolute left-3 top-3 z-10">
+                <span className="rounded-[9px] border border-[var(--primary)]/60 bg-black/55 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white">
+                  {active.startSec.toFixed(1)}s – {active.endSec.toFixed(1)}s
                 </span>
-              </button>
-            );
-          })
-        )}
+              </div>
+            </div>
+            <p className="mt-2 line-clamp-2 text-[12px] font-semibold tracking-[-0.01em] text-[var(--foreground)]">
+              {active.caption}
+            </p>
+          </div>
+        ) : null}
+
+        <div className="max-h-[260px] overflow-y-auto">
+          {status === "error" ? (
+            <p className="px-3 py-3 text-[12px] font-semibold text-[oklch(0.55_0.18_25)]">
+              {errorMsg ?? "search failed"}
+            </p>
+          ) : status === "empty" ? (
+            <p className="px-3 py-3 text-[12px] font-semibold text-[var(--muted-foreground)]">
+              no matching clips. try a different query or run the indexer.
+            </p>
+          ) : results.length === 0 ? (
+            <p className="px-3 py-3 text-[12px] font-semibold text-[var(--muted-foreground)]">
+              describe a moment in <span className="font-mono">{selectedLabel ?? "the selected video"}</span> to find it.
+            </p>
+          ) : (
+            results.map((r, i) => {
+              const selected = active && active.videoId === r.videoId && active.startSec === r.startSec;
+              return (
+                <button
+                  key={`${r.videoId}-${r.startSec}-${i}`}
+                  type="button"
+                  onClick={() => setActive(r)}
+                  className={`flex w-full items-start justify-between gap-3 border-b border-[var(--primary)]/15 px-3 py-2 text-left transition ${
+                    selected ? "bg-[var(--primary)]/8" : "hover:bg-[var(--primary)]/6"
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
+                      {r.videoId.split("/").pop()} · {r.startSec.toFixed(1)}s
+                    </p>
+                    <p className="mt-1 line-clamp-2 text-[12px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
+                      {r.caption}
+                    </p>
+                  </div>
+                  <span className="shrink-0 rounded-[8px] border border-[var(--primary)]/55 bg-white/20 px-2 py-0.5 text-[10px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
+                    {(r.score * 100).toFixed(0)}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
       </div>
-    </div>
+    </GlassSurface>
   );
 }
 
 function CameraPreviewThumb({
   room,
   onSelect,
+  stacked = false,
 }: {
   room: RoomSummary;
   onSelect: () => void;
+  stacked?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className="group relative w-[400px] shrink-0 overflow-hidden rounded-[16px] text-left transition-transform duration-300 hover:-translate-y-0.5 lg:w-[400px]"
+    <GlassSurface
+      width="100%"
+      height="auto"
+      borderRadius={16}
+      saturation={1.12}
+      backgroundOpacity={0.08}
+      blur={4}
+      className={`alerts-glass alerts-glass-press group overflow-hidden ${
+        stacked ? "w-full" : "w-[400px] shrink-0 lg:w-[400px]"
+      }`}
     >
-      <div className="relative aspect-video overflow-hidden rounded-[16px] bg-black/12">
-        <CameraFrameViewer roomId={room.roomId} />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-[linear-gradient(180deg,transparent,rgba(0,0,0,0.58))] px-3 py-2.5">
-          <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-white/72">
-            {room.roomId}
-          </p>
-          <p className="mt-1 truncate text-[13px] font-bold tracking-[-0.01em] text-white">
-            Sender {room.senderId ?? "unknown"}
-          </p>
+      <button
+        type="button"
+        onClick={onSelect}
+        className="w-full text-left"
+      >
+        <div className="relative aspect-video overflow-hidden rounded-[15px] bg-black/12">
+          <CameraFrameViewer roomId={room.roomId} />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-[linear-gradient(180deg,transparent,rgba(0,0,0,0.58))] px-3 py-2.5">
+            <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-white/72">
+              {room.roomId}
+            </p>
+            <p className="mt-1 truncate text-[13px] font-bold tracking-[-0.01em] text-white">
+              Sender {room.senderId ?? "unknown"}
+            </p>
+          </div>
         </div>
-      </div>
-    </button>
+      </button>
+    </GlassSurface>
+  );
+}
+
+function WorldButton({ active, onClick }: { active: boolean; onClick: () => void }) {
+  return (
+    <GlassSurface
+      width="auto"
+      height={34}
+      borderRadius={10}
+      saturation={1.12}
+      backgroundOpacity={0.08}
+      blur={4}
+      className="alerts-glass alerts-glass-press"
+    >
+      <button
+        type="button"
+        onClick={onClick}
+        className={`h-full w-full px-3 text-[10px] font-bold uppercase tracking-[0.14em] transition ${
+          active
+            ? "text-[var(--foreground)]"
+            : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+        }`}
+      >
+        World
+      </button>
+    </GlassSurface>
   );
 }
 
@@ -1110,26 +1292,86 @@ function formatTimestamp(value: string) {
   return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
 }
 
-function EmptyCameraPreview() {
+function EmptyCameraPreview({
+  title,
+  description,
+  worldOpen,
+  onToggleWorld,
+}: {
+  title: string;
+  description: string;
+  worldOpen: boolean;
+  onToggleWorld: () => void;
+}) {
   return (
-    <div className="flex min-h-[min(78vh,820px)] w-full flex-1 pt-2">
-      <div className="flex w-full flex-1 flex-col overflow-hidden rounded-[16px] border border-[var(--border)]/70 bg-white/14 shadow-[0_1px_0_rgba(255,255,255,0.2)_inset]">
+    <GlassSurface
+      width="100%"
+      height="100%"
+      borderRadius={16}
+      saturation={1.18}
+      backgroundOpacity={0.1}
+      blur={4}
+      className="alerts-glass flex min-h-[min(78vh,820px)] w-full min-w-0 flex-1 flex-col overflow-hidden"
+    >
+      <div className="flex h-full min-h-0 flex-col overflow-hidden">
         <div className="flex items-center justify-between border-b border-[var(--border)]/70 px-3 py-2.5">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
-              camera_preview
+              live_camera_feed
             </p>
             <p className="mt-1 text-[13px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
               Sender pending
             </p>
           </div>
-          <span className="rounded-[9px] border border-[var(--border)]/60 bg-white/20 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--foreground)]">
-            idle
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="rounded-[9px] border border-[var(--border)]/60 bg-white/20 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--foreground)]">
+              idle
+            </span>
+            <WorldButton active={worldOpen} onClick={onToggleWorld} />
+          </div>
         </div>
 
-        <LandscapeCameraFeed />
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <div className="relative aspect-video overflow-hidden border-b border-[var(--border)]/70 bg-white/10">
+            <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.18),rgba(255,255,255,0.04))]" />
+            <div className="absolute inset-3 rounded-[14px] border border-dashed border-[var(--border)]/55 bg-white/10" />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="rounded-[12px] border border-[var(--border)]/60 bg-white/32 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--foreground)]">
+                Live iPhone camera feed
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between border-b border-[var(--border)]/70 px-3 py-2.5">
+            <div className="flex items-center gap-2">
+              <Activity size={14} className="text-[var(--foreground)]" />
+              <p className="text-[12px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
+                Output body
+              </p>
+            </div>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
+              json
+            </span>
+          </div>
+
+          <div className="px-3 py-3">
+            <div className="rounded-[14px] border border-dashed border-[var(--border)]/55 bg-white/10 px-3 py-3">
+              <p className="text-[14px] font-bold tracking-[-0.01em] text-[var(--foreground)]">{title}</p>
+              <p className="mt-2 text-[13px] font-semibold text-[var(--muted-foreground)]">{description}</p>
+              <pre className="mt-3 overflow-x-auto rounded-[10px] border border-[var(--border)]/45 bg-white/18 px-3 py-3 font-mono text-[11px] font-semibold leading-5 text-[var(--foreground)]">
+{`{
+  "roomId": "live_camera_feed",
+  "senderOnline": false,
+  "senderId": null,
+  "viewerCount": 0,
+  "frameCount": 0,
+  "lastFrameAt": null
+}`}
+              </pre>
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
+    </GlassSurface>
   );
 }

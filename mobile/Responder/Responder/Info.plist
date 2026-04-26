@@ -22,6 +22,8 @@
 	<string>Responder needs camera access to capture frames for live inference.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Responder needs microphone access to capture audio for live transcription inference.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Responder needs local network access to stream camera frames to the dashboard relay on your Mac.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Responder uses speech recognition to provide fallback transcription when cloud model loading fails.</string>
 	<key>NSAppTransportSecurity</key>
