@@ -29,6 +29,7 @@ targets:
       properties:
         NSCameraUsageDescription: Responder needs camera access to capture frames for live inference.
         NSMicrophoneUsageDescription: Responder needs microphone access to capture audio for live transcription inference.
+        NSLocalNetworkUsageDescription: Responder needs local network access to stream camera frames to the dashboard relay on your Mac.
         NSSpeechRecognitionUsageDescription: Responder uses speech recognition to provide fallback transcription when cloud model loading fails.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
