@@ -36,6 +36,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# cached point clouds + frustums fetched from the bridge
+/.cloud-cache/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

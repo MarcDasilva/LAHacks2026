@@ -19,6 +19,7 @@ export function SessionSwitcher({ bridgeUrl, current, onSelect, alwaysInclude }:
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
 
   useEffect(() => {
+    if (!bridgeUrl) return;
     let alive = true;
     const tick = async () => {
       try {

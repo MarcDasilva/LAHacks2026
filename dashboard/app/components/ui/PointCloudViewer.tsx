@@ -54,17 +54,18 @@ export function PointCloudViewer({
   useEffect(() => {
     let cloudUrl = url;
     let frustumUrl: string | null = null;
-    if (!cloudUrl && bridgeUrl && sessionId) {
-      const base = `${bridgeUrl.replace(/\/$/, "")}/sessions/${sessionId}`;
+    // Route through the dashboard's own API so the response is cached on
+    // disk locally; subsequent loads (e.g. church/oxford) skip RunPod entirely.
+    if (!cloudUrl && sessionId) {
       const qs: string[] = [];
       if (conf !== undefined) qs.push(`conf=${conf}`);
       if (downsample !== undefined) qs.push(`downsample=${downsample}`);
-      cloudUrl = `${base}/cloud${qs.length ? `?${qs.join("&")}` : ""}`;
-      frustumUrl = `${base}/frustums`;
+      cloudUrl = `/api/cloud/${encodeURIComponent(sessionId)}${qs.length ? `?${qs.join("&")}` : ""}`;
+      frustumUrl = `/api/frustums/${encodeURIComponent(sessionId)}`;
     }
     if (!cloudUrl) {
       setStatus("error");
-      setError("no url");
+      setError("no url or sessionId");
       return;
     }
     if (!containerRef.current) return;
