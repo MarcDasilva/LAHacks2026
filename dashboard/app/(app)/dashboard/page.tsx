@@ -198,8 +198,8 @@ export default function Dashboard() {
                   ) : null}
 
                   <SparseSplatPanel
+                    localUrl="/clouds/sparse.lbmp"
                     pointerUrl="/clouds/sparse.url.json"
-                    fallbackUrl="/clouds/sparse.lbmp"
                   />
 
                   {previewRooms.length > 0 ? (
@@ -366,38 +366,52 @@ function ModelOutputSection({
 }
 
 function SparseSplatPanel({
+  localUrl,
   pointerUrl,
-  fallbackUrl,
 }: {
+  localUrl: string;
   pointerUrl: string;
-  fallbackUrl: string;
 }) {
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
-  const [source, setSource] = useState<"cloudinary" | "local">("local");
+  const [source, setSource] = useState<"local" | "cloudinary">("local");
 
   useEffect(() => {
     let cancelled = false;
-    fetch(pointerUrl, { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((payload: { url?: string } | null) => {
-        if (cancelled) return;
-        if (payload?.url) {
+
+    // Local-first: probe the static file. If served, use it. Only fall back to
+    // the Cloudinary pointer JSON when local is missing or unreachable.
+    (async () => {
+      try {
+        const head = await fetch(localUrl, { method: "HEAD", cache: "no-store" });
+        if (!cancelled && head.ok) {
+          setResolvedUrl(localUrl);
+          setSource("local");
+          return;
+        }
+      } catch {
+        // fall through
+      }
+
+      try {
+        const res = await fetch(pointerUrl, { cache: "no-store" });
+        if (!res.ok) throw new Error(`pointer ${res.status}`);
+        const payload = (await res.json()) as { url?: string };
+        if (!cancelled && payload?.url) {
           setResolvedUrl(payload.url);
           setSource("cloudinary");
-        } else {
-          setResolvedUrl(fallbackUrl);
+        }
+      } catch {
+        if (!cancelled) {
+          setResolvedUrl(localUrl);
           setSource("local");
         }
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setResolvedUrl(fallbackUrl);
-        setSource("local");
-      });
+      }
+    })();
+
     return () => {
       cancelled = true;
     };
-  }, [pointerUrl, fallbackUrl]);
+  }, [localUrl, pointerUrl]);
 
   return (
     <div className="min-h-[min(76vh,760px)] min-w-0 overflow-hidden rounded-[16px] border border-[var(--foreground)]/28 bg-white/22 shadow-[0_1px_0_rgba(255,255,255,0.22)_inset,0_18px_48px_rgba(15,15,15,0.08)] transition-[width,transform,box-shadow] duration-300 ease-out lg:w-[min(34vw,520px)] lg:min-w-[min(34vw,520px)]">
