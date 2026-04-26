@@ -8,7 +8,7 @@ export default function CameraPage() {
         <p className="text-sm text-[var(--muted-foreground)] mb-4">
           Start this source page to push JPEG frames to the dashboard stream panel.
         </p>
-        <CameraFrameSender roomId="main-camera" />
+        <CameraFrameSender roomId="main-camera" maxWidth={1920} maxHeight={1080} maxFps={30} />
       </div>
     </div>
   );

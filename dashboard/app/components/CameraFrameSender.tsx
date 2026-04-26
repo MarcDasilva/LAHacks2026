@@ -30,9 +30,9 @@ function createPeerConnection() {
 export default function CameraFrameSender({
   roomId = "main-camera",
   serverUrl,
-  maxWidth = 1280,
-  maxHeight = 720,
-  maxFps = 24,
+  maxWidth = 1920,
+  maxHeight = 1080,
+  maxFps = 30,
 }: CameraFrameSenderProps) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [status, setStatus] = useState("idle");
@@ -136,7 +136,8 @@ export default function CameraFrameSender({
           facingMode: "environment",
           width: { ideal: maxWidth },
           height: { ideal: maxHeight },
-          frameRate: { ideal: maxFps },
+          aspectRatio: { ideal: 16 / 9 },
+          frameRate: { ideal: maxFps, max: maxFps },
         },
         audio: false,
       });
