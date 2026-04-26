@@ -21,6 +21,10 @@ function getRoom(roomId) {
       frameCount: 0,
       lastFrameAt: null,
       lastFrameBytes: 0,
+      modelOutputs: {
+        yolo: null,
+        yamnet: null,
+      },
       updatedAt: new Date().toISOString(),
     };
     rooms.set(roomId, room);
@@ -38,6 +42,7 @@ function roomSnapshot(roomId, room) {
     frameCount: room.frameCount,
     lastFrameAt: room.lastFrameAt,
     lastFrameBytes: room.lastFrameBytes,
+    modelOutputs: room.modelOutputs,
     updatedAt: room.updatedAt,
   };
 }
@@ -216,6 +221,20 @@ wss.on("connection", (socket) => {
         fromId: socket.id,
         data: payload.data,
       });
+      return;
+    }
+
+    if (payload.type === "model-output" && payload.kind && payload.payload) {
+      const { roomId, role } = socket.meta;
+      if (!roomId || role !== "sender") return;
+      const room = rooms.get(roomId);
+      if (!room) return;
+
+      const kind = payload.kind === "yamnet" ? "yamnet" : payload.kind === "yolo" ? "yolo" : null;
+      if (!kind) return;
+
+      room.modelOutputs[kind] = payload.payload;
+      room.updatedAt = new Date().toISOString();
       return;
     }
   });

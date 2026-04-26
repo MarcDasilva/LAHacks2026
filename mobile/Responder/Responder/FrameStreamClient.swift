@@ -183,6 +183,19 @@ final class FrameStreamClient: NSObject {
         }
     }
 
+    func sendModelOutput(kind: String, payload: TranscriptChunk) {
+        guard settings.enabled else { return }
+        sendQueue.async { [weak self] in
+            guard let self else { return }
+            guard self.isRunning, self.isConnected, let webSocketTask = self.webSocketTask else { return }
+            let envelope = ModelOutputEnvelope(type: "model-output", kind: kind, roomId: self.settings.roomID, payload: payload)
+            guard let data = try? JSONEncoder.frameStreamEncoder.encode(envelope),
+                  let text = String(data: data, encoding: .utf8)
+            else { return }
+            webSocketTask.send(.string(text)) { _ in }
+        }
+    }
+
     private func connect() {
         guard let url = URL(string: settings.wsURLString) else {
             publishState(.invalidURL)
@@ -701,6 +714,22 @@ final class FrameStreamClient: NSObject {
     #else
     private func closeAllPeers() {}
     #endif
+}
+
+private struct ModelOutputEnvelope: Encodable {
+    let type: String
+    let kind: String
+    let roomId: String
+    let payload: TranscriptChunk
+}
+
+private extension JSONEncoder {
+    static var frameStreamEncoder: JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
+    }
 }
 
 extension FrameStreamClient: URLSessionWebSocketDelegate {
