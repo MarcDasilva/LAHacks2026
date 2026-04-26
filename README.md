@@ -1,6 +1,6 @@
 # IMPULSE — Real-Time Incident Response Platform  
 
-![Tech Image](tech.pdf)
+![Tech](tech.pdf)
 
 IMPULSE is a command center for emergency responders (fire, EMS, police). It unifies live camera feeds, AI-powered scene detection, 3D spatial reconstruction, and geospatial dispatch coordination into a single web interface.
 
