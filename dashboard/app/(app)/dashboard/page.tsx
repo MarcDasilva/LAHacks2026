@@ -16,7 +16,7 @@ import { PointCloudViewer } from "@/app/components/ui/PointCloudViewer";
 import { GaussianSplatViewer } from "@/app/components/ui/GaussianSplatViewer";
 import GlassSurface from "@/components/GlassSurface";
 import Grainient from "@/components/Grainient";
-import { Activity, ChevronRight } from "lucide-react";
+import { Activity, ChevronRight, Search } from "lucide-react";
 
 type RoomSummary = {
   roomId: string;
@@ -81,6 +81,8 @@ type SplatRecord = {
   splatJobId?: string;
   splatPath?: string;
   splatError?: string;
+  indexStatus?: "pending" | "ready" | "failed";
+  indexError?: string;
 };
 
 type SplatManifest = {
@@ -93,11 +95,20 @@ type SelectedVideo = {
   source: "cloudinary" | "user" | "local" | "stream";
 };
 
+type ActiveClip = {
+  videoId: string;
+  startSec: number;
+  endSec: number;
+  caption: string;
+} | null;
+
 type SelectedVideoCtx = {
   selected: SelectedVideo | null;
   setSelected: (v: SelectedVideo | null) => void;
   manifest: SplatManifest | null;
   refreshManifest: () => Promise<void>;
+  activeClip: ActiveClip;
+  setActiveClip: (c: ActiveClip) => void;
 };
 
 const SelectedVideoContext = createContext<SelectedVideoCtx | null>(null);
@@ -138,6 +149,10 @@ export default function Dashboard() {
   );
   const [contentVisible, setContentVisible] = useState(!shouldBoot);
   const [worldOpen, setWorldOpen] = useState(false);
+  // Default mode is "stream": the dashboard waits for an iPhone sender as
+  // before. Switching to "upload" replaces the left column with the upload
+  // picker — the streaming pipeline keeps polling /rooms either way.
+  const [mode, setMode] = useState<"stream" | "upload">("stream");
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [fetchState, setFetchState] = useState<"loading" | "ready" | "error">("loading");
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
@@ -226,37 +241,45 @@ export default function Dashboard() {
 
   // ── Splat manifest + shared video selection ─────────────────────────
   const [manifest, setManifest] = useState<SplatManifest | null>(null);
-  const [selected, setSelected] = useState<SelectedVideo | null>({
-    videoId: DEFAULT_VIDEO_ID,
-    source: "local",
-  });
+  // Default: nothing selected. The right column (splat + search) only
+  // appears once the user picks a video; until then the camera preview
+  // shows "no video footage selected" with the picker.
+  const [selected, setSelected] = useState<SelectedVideo | null>(null);
+  const [activeClip, setActiveClip] = useState<ActiveClip>(null);
 
   const refreshManifest = useCallback(async () => {
-    // /api/splat-poll drains any finished Modal jobs (writing scene.splat to
-    // disk + updating the manifest) and returns the manifest in the same
-    // request, so polling does both at once.
+    // /api/splat-poll drains any finished Modal jobs (writing scene.splat
+    // to disk + updating the manifest) and returns the manifest in the
+    // same request, so polling does both at once. Falls back to the
+    // static manifest if MODAL_SPLAT_URL isn't configured.
     try {
       const res = await fetch("/api/splat-poll", { cache: "no-store" });
       if (!res.ok) throw new Error(`splat-poll ${res.status}`);
       const payload = (await res.json()) as SplatManifest;
       setManifest(payload);
+      return;
     } catch {
-      // Fallback to the static manifest if the poll route isn't available
-      // (e.g., MODAL_SPLAT_URL not configured yet).
-      try {
-        const res = await fetch("/clouds/splats/manifest.json", { cache: "no-store" });
-        if (!res.ok) throw new Error(`manifest ${res.status}`);
-        const payload = (await res.json()) as SplatManifest;
-        setManifest(payload);
-      } catch {
-        setManifest({ version: 1, videos: {} });
-      }
+      /* fall through to static manifest */
+    }
+    try {
+      const res = await fetch("/clouds/splats/manifest.json", { cache: "no-store" });
+      if (!res.ok) throw new Error(`manifest ${res.status}`);
+      const payload = (await res.json()) as SplatManifest;
+      setManifest(payload);
+    } catch {
+      setManifest({ version: 1, videos: {} });
     }
   }, []);
 
   useEffect(() => {
     refreshManifest();
   }, [refreshManifest]);
+
+  // When the selected video changes, drop any active clip from a previous
+  // search session — its time range belongs to a different video.
+  useEffect(() => {
+    setActiveClip(null);
+  }, [selected?.videoId]);
 
   // While any splat in the manifest is still processing, poll periodically
   // so the UI flips from 'processing…' → 'ready' without a manual reload.
@@ -266,7 +289,8 @@ export default function Dashboard() {
       (v) =>
         v.status === "processing" ||
         v.splatStatus === "pending" ||
-        v.splatStatus === "training"
+        v.splatStatus === "training" ||
+        v.indexStatus === "pending"
     );
     if (!anyProcessing) return;
     const id = window.setInterval(refreshManifest, 4000);
@@ -274,8 +298,8 @@ export default function Dashboard() {
   }, [manifest, refreshManifest]);
 
   const selectionCtx = useMemo<SelectedVideoCtx>(
-    () => ({ selected, setSelected, manifest, refreshManifest }),
-    [selected, manifest, refreshManifest]
+    () => ({ selected, setSelected, manifest, refreshManifest, activeClip, setActiveClip }),
+    [selected, manifest, refreshManifest, activeClip]
   );
 
   return (
@@ -354,12 +378,21 @@ export default function Dashboard() {
             <section className="pointer-events-auto min-h-0 flex-1 overflow-hidden">
               <div className="flex h-full min-h-0 flex-col gap-3 lg:flex-row">
                 <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto lg:w-1/2 lg:flex-1">
-                  {activeRooms.length > 0 ? (
+                  {mode === "upload" ? (
+                    <UploadCameraPanel
+                      mode={mode}
+                      onChangeMode={setMode}
+                      worldOpen={worldOpen}
+                      onToggleWorld={() => setWorldOpen((value) => !value)}
+                    />
+                  ) : activeRooms.length > 0 ? (
                     selectedRoom ? (
                       <SelectedCameraPanel
                         room={selectedRoom}
                         worldOpen={worldOpen}
                         onToggleWorld={() => setWorldOpen((value) => !value)}
+                        mode={mode}
+                        onChangeMode={setMode}
                       />
                     ) : null
                   ) : (
@@ -372,22 +405,14 @@ export default function Dashboard() {
                       }
                       worldOpen={worldOpen}
                       onToggleWorld={() => setWorldOpen((value) => !value)}
+                      mode={mode}
+                      onChangeMode={setMode}
                     />
                   )}
                 </div>
 
                 <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto lg:w-1/2 lg:flex-1">
-                  {worldOpen ? (
-                    <>
-                      <SparseSplatPanel />
-                      <VideoSearchPanel />
-                    </>
-                  ) : activeRooms.length > 0 ? (
-                    <AdditionalCamerasPanel
-                      rooms={previewRooms}
-                      onSelectRoom={(roomId) => setSelectedRoomId(roomId)}
-                    />
-                  ) : null}
+                  <SparseSplatPanel onNavigateToFootage={() => setMode("upload")} />
                 </div>
               </div>
             </section>
@@ -403,10 +428,14 @@ function SelectedCameraPanel({
   room,
   worldOpen,
   onToggleWorld,
+  mode,
+  onChangeMode,
 }: {
   room: RoomSummary;
   worldOpen: boolean;
   onToggleWorld: () => void;
+  mode: "stream" | "upload";
+  onChangeMode: (m: "stream" | "upload") => void;
 }) {
   const yoloPayload = room.modelOutputs?.yolo ?? null;
   const yamnetPayload = room.modelOutputs?.yamnet ?? null;
@@ -434,6 +463,7 @@ function SelectedCameraPanel({
           </div>
           <div className="flex items-center gap-2">
             <StatusPill label="live" />
+            <ModeToggle mode={mode} onChange={onChangeMode} />
             <WorldButton active={worldOpen} onClick={onToggleWorld} />
           </div>
         </div>
@@ -640,49 +670,10 @@ function LandscapeCameraFeed() {
   const userObjectUrlRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Resolve the default feed. Order: newest file under assets/output/input
-  // (served by /api/local-video), then the bundled /clouds/video.mp4,
-  // then the cloudinary pointer JSON. User picks below override this.
+  // No auto-default feed: the user must explicitly pick footage from the
+  // dropdown (or upload one) before any panel is populated.
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/footage", { cache: "no-store" });
-        if (res.ok) {
-          const payload = (await res.json()) as { videos?: CloudinaryFootage[] };
-          const localPick = (payload.videos ?? []).find((v) => v.source === "local");
-          if (!cancelled && localPick) {
-            setFeed({ kind: "local", src: localPick.url });
-            return;
-          }
-        }
-      } catch {
-        /* fall through to bundled demo */
-      }
-
-      const bundled = "/clouds/video.mp4";
-      try {
-        const head = await fetch(bundled, { method: "HEAD", cache: "no-store" });
-        if (!cancelled && head.ok) {
-          setFeed({ kind: "local", src: bundled });
-          return;
-        }
-      } catch {
-        /* fall through */
-      }
-      try {
-        const res = await fetch("/clouds/video.url.json", { cache: "no-store" });
-        if (!res.ok) throw new Error(`pointer ${res.status}`);
-        const payload = (await res.json()) as { url?: string };
-        if (!cancelled && payload?.url) {
-          setFeed({ kind: "cloudinary", src: payload.url, label: "video.url.json" });
-        }
-      } catch {
-        /* leave feed null — placeholder shown */
-      }
-    })();
     return () => {
-      cancelled = true;
       if (userObjectUrlRef.current) URL.revokeObjectURL(userObjectUrlRef.current);
     };
   }, []);
@@ -740,6 +731,13 @@ function LandscapeCameraFeed() {
       const res = await fetch("/api/upload-video", { method: "POST", body: form });
       if (!res.ok) throw new Error(`upload ${res.status}: ${await res.text()}`);
       const payload = (await res.json()) as { videoId?: string; videoUrl?: string };
+      if (payload.videoUrl) {
+        if (userObjectUrlRef.current) {
+          URL.revokeObjectURL(userObjectUrlRef.current);
+          userObjectUrlRef.current = null;
+        }
+        setFeed({ kind: "local", src: payload.videoUrl });
+      }
       if (payload.videoId) {
         setSelected({ videoId: payload.videoId, source: "user" });
         await refreshManifest();
@@ -822,7 +820,7 @@ function LandscapeCameraFeed() {
           <div className="absolute right-0 mt-2 w-[280px] overflow-hidden rounded-[14px] border border-[var(--primary)] bg-white/96 shadow-[0_18px_48px_rgba(15,15,15,0.18)] backdrop-blur">
             <div className="border-b border-[var(--primary)]/40 px-3 py-2">
               <p className="text-[10px] font-bold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
-                Footage library · local first
+                Library
               </p>
             </div>
             <div className="max-h-[220px] overflow-y-auto">
@@ -838,7 +836,14 @@ function LandscapeCameraFeed() {
                     onClick={() => {
                       if (v.source === "local") {
                         setFeed({ kind: "local", src: v.url });
-                        setSelected({ videoId: publicIdToVideoId(v.id), source: "local" });
+                        // Manifest stores uploads under
+                        // `impulse__uploads__<basename-without-ext>` — match
+                        // that here so the splat panel finds the record.
+                        const base = v.name.replace(/\.[^.]+$/, "");
+                        setSelected({
+                          videoId: `impulse__uploads__${base}`,
+                          source: "local",
+                        });
                       } else {
                         setFeed({ kind: "cloudinary", src: v.url, label: v.name });
                         setSelected({ videoId: publicIdToVideoId(v.id), source: "cloudinary" });
@@ -850,10 +855,6 @@ function LandscapeCameraFeed() {
                     <div className="min-w-0">
                       <p className="truncate text-[12px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
                         {v.name}
-                      </p>
-                      <p className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
-                        {(v.bytes / 1_048_576).toFixed(1)} MB
-                        {v.durationSec ? ` · ${v.durationSec.toFixed(1)}s` : ""}
                       </p>
                     </div>
                   </button>
@@ -883,17 +884,105 @@ function LandscapeCameraFeed() {
   );
 }
 
-function SparseSplatPanel() {
-  const { selected, manifest } = useSelectedVideo();
+type SearchResult = {
+  videoId: string;
+  videoUrl: string;
+  startSec: number;
+  endSec: number;
+  caption: string;
+  score: number;
+};
+
+type ManifestRecordExt = SplatRecord & { videoLocalUrl?: string };
+
+function manifestPlaybackSource(rec: ManifestRecordExt | null | undefined): SelectedVideo["source"] {
+  if (!rec) return "local";
+  const url = rec.videoLocalUrl ?? rec.videoUrl ?? "";
+  if (/cloudinary\.com|video\/upload|image\/upload/i.test(url)) return "cloudinary";
+  return "local";
+}
+
+function selectedSourceForSearchHit(hit: SearchResult, manifest: SplatManifest | null): SelectedVideo["source"] {
+  const rec = manifest?.videos[hit.videoId] as ManifestRecordExt | undefined;
+  if (rec) return manifestPlaybackSource(rec);
+  if (/cloudinary\.com/i.test(hit.videoUrl)) return "cloudinary";
+  return "local";
+}
+
+function SearchHitClipPreview({
+  src,
+  startSec,
+  endSec,
+  className = "",
+}: {
+  src: string;
+  startSec: number;
+  endSec: number;
+  className?: string;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || !src) return;
+
+    const syncStart = () => {
+      try {
+        if (v.readyState >= 1) {
+          v.currentTime = startSec;
+          void v.play();
+        }
+      } catch {
+        /* seek can fail before media is ready */
+      }
+    };
+
+    const onTime = () => {
+      if (v.currentTime >= endSec - 0.06 || v.currentTime < startSec - 0.2) {
+        v.currentTime = startSec;
+        void v.play();
+      }
+    };
+
+    v.addEventListener("loadeddata", syncStart);
+    v.addEventListener("loadedmetadata", syncStart);
+    v.addEventListener("canplay", syncStart);
+    v.addEventListener("timeupdate", onTime);
+    syncStart();
+
+    return () => {
+      v.removeEventListener("loadeddata", syncStart);
+      v.removeEventListener("loadedmetadata", syncStart);
+      v.removeEventListener("canplay", syncStart);
+      v.removeEventListener("timeupdate", onTime);
+    };
+  }, [src, startSec, endSec]);
+
+  return (
+    <video
+      ref={videoRef}
+      src={src}
+      muted
+      playsInline
+      preload="metadata"
+      className={className}
+      aria-hidden
+    />
+  );
+}
+
+function SparseSplatPanel({ onNavigateToFootage }: { onNavigateToFootage?: () => void }) {
+  const { selected, manifest, activeClip, setActiveClip, setSelected } = useSelectedVideo();
   const record = selected ? manifest?.videos[selected.videoId] ?? null : null;
   const status: SplatStatus | "unknown" = record?.status ?? (manifest ? "unknown" : "processing");
 
   const lbmpUrl = record?.lbmpPath ?? null;
   const pathUrl = record?.pathPath ?? null;
-  // Prefer the Modal-trained Gaussian splat once it's ready. While it's
-  // training we show a loading state (no sparse preview, per design choice).
-  const splatUrl = record?.splatStatus === "ready" ? record.splatPath ?? null : null;
+  // Prefer the Modal-trained Gaussian splat once it's ready; otherwise fall
+  // back to the local COLMAP sparse cloud (.lbmp).
   const splatStatus = record?.splatStatus;
+  const splatUrl = splatStatus === "ready" ? record?.splatPath ?? null : null;
+  const localSparseReady = !splatUrl && status === "ready" && Boolean(lbmpUrl);
 
   const statusLabel =
     splatStatus === "ready"
@@ -909,6 +998,78 @@ function SparseSplatPanel() {
               : status === "failed"
                 ? "failed"
                 : "no splat";
+
+  const [query, setQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchUiStatus, setSearchUiStatus] = useState<"idle" | "searching" | "error" | "empty">("idle");
+  const [searchErrorMsg, setSearchErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSearchResults([]);
+    setSearchUiStatus("idle");
+    setSearchErrorMsg(null);
+  }, [selected?.videoId]);
+
+  const selectedLabel = selected
+    ? manifest?.videos[selected.videoId]?.label ?? selected.videoId
+    : null;
+  const selectedRecord = selected ? manifest?.videos[selected.videoId] ?? null : null;
+  const indexStatus = selectedRecord?.indexStatus;
+  const indexBlocked = indexStatus === "pending" || indexStatus === "failed";
+
+  const goToSearchHit = useCallback(
+    (hit: SearchResult) => {
+      onNavigateToFootage?.();
+      setSelected({ videoId: hit.videoId, source: selectedSourceForSearchHit(hit, manifest) });
+      setActiveClip({
+        videoId: hit.videoId,
+        startSec: hit.startSec,
+        endSec: hit.endSec,
+        caption: hit.caption,
+      });
+    },
+    [manifest, onNavigateToFootage, setActiveClip, setSelected]
+  );
+
+  const submitSearch = async () => {
+    const q = query.trim();
+    if (!q) return;
+    if (!selected?.videoId) {
+      setSearchUiStatus("error");
+      setSearchErrorMsg("pick a video first");
+      return;
+    }
+    setSearchUiStatus("searching");
+    setSearchErrorMsg(null);
+    try {
+      const params = new URLSearchParams({
+        q,
+        limit: "6",
+        video: selected.videoId,
+      });
+      const res = await fetch(`/api/search?${params.toString()}`, {
+        cache: "no-store",
+      });
+      const payload = (await res.json()) as {
+        results?: SearchResult[];
+        error?: string;
+      };
+      if (payload.error) {
+        setSearchUiStatus("error");
+        setSearchErrorMsg(payload.error);
+        setSearchResults([]);
+        return;
+      }
+      const list = payload.results ?? [];
+      setSearchResults(list);
+      const top = list[0];
+      if (top) goToSearchHit(top);
+      setSearchUiStatus(list.length === 0 ? "empty" : "idle");
+    } catch (e) {
+      setSearchUiStatus("error");
+      setSearchErrorMsg(e instanceof Error ? e.message : "request failed");
+    }
+  };
 
   return (
     <GlassSurface
@@ -933,7 +1094,7 @@ function SparseSplatPanel() {
           <StatusPill label={statusLabel} />
         </div>
 
-        <div className="bg-black/8 p-3 transition-[padding] duration-300">
+        <div className="shrink-0 bg-black/8 p-3 transition-[padding] duration-300">
           <div className="relative aspect-video overflow-hidden rounded-[14px] border border-[var(--primary)]/55 bg-black/12 shadow-[0_1px_0_rgba(255,255,255,0.16)_inset] transition-[height] duration-300">
             {splatUrl ? (
               <GaussianSplatViewer
@@ -948,12 +1109,13 @@ function SparseSplatPanel() {
                 </div>
               </div>
             ) : splatStatus === "pending" || splatStatus === "training" ? (
-              <div className="absolute inset-0 flex items-center justify-center bg-[linear-gradient(135deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))]">
-                <div className="rounded-[12px] border border-[var(--primary)]/45 bg-black/45 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-white/85">
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[linear-gradient(135deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] text-white">
+                <Spinner size={24} className="text-white" />
+                <div className="rounded-[12px] border border-[var(--primary)]/45 bg-black/55 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-white/90">
                   Training Gaussian splat… (~5–10 min)
                 </div>
               </div>
-            ) : lbmpUrl && status === "ready" ? (
+            ) : lbmpUrl && localSparseReady ? (
               <PointCloudViewer
                 key={selected?.videoId ?? "none"}
                 url={lbmpUrl}
@@ -976,214 +1138,185 @@ function SparseSplatPanel() {
           </div>
         </div>
 
-        <div className="border-t border-[var(--primary)]/70 px-3 py-2.5">
+        <div className="flex min-h-0 flex-1 flex-col border-t border-[var(--border)]/55 bg-black/6">
+          <div className="flex min-h-0 flex-1 flex-col p-3">
+            <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-[var(--border)]/60 bg-white/14 shadow-[0_1px_0_rgba(255,255,255,0.06)_inset]">
+              <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--border)]/60 px-3 py-2.5">
+                <div className="flex min-w-0 items-start gap-2.5">
+                  <Search
+                    size={14}
+                    className="mt-0.5 shrink-0 text-[var(--foreground)] opacity-[0.72]"
+                    strokeWidth={2.25}
+                    aria-hidden
+                  />
+                  <div className="min-w-0">
+                    <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
+                      sentry_search
+                    </p>
+                    <p className="mt-1 truncate text-[13px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
+                      {selectedLabel ? "Natural-language clips" : "Clip retrieval"}
+                    </p>
+                  </div>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p
+                    className={`text-[10px] font-semibold uppercase tracking-[0.14em] font-display ${
+                      indexStatus === "pending"
+                        ? "text-[var(--foreground)] animate-pulse"
+                        : indexStatus === "failed"
+                          ? "text-[var(--destructive)]"
+                          : "text-[var(--muted-foreground)]"
+                    }`}
+                  >
+                    {indexStatus === "pending"
+                      ? "indexing"
+                      : indexStatus === "failed"
+                        ? "index failed"
+                        : "index ready"}
+                  </p>
+                  {selectedLabel ? (
+                    <p className="mt-1 max-w-[140px] truncate text-[11px] font-semibold text-[var(--foreground)]/78">
+                      {selectedLabel}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="flex shrink-0 flex-wrap items-stretch gap-2 border-b border-[var(--border)]/60 px-3 py-3">
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") submitSearch();
+                  }}
+                  placeholder={
+                    indexStatus === "pending"
+                      ? "Indexing — search unlocks when ready…"
+                      : "e.g. someone walking through a doorway"
+                  }
+                  disabled={indexBlocked}
+                  className="min-h-[40px] min-w-0 flex-1 rounded-[10px] border border-[var(--border)]/55 bg-white/24 px-3 py-2 text-[12px] font-bold tracking-[-0.01em] text-[var(--foreground)] placeholder:font-semibold placeholder:text-[var(--muted-foreground)]/65 focus:outline-none focus:ring-2 focus:ring-[var(--ring)]/30 disabled:opacity-50"
+                />
+                <button
+                  type="button"
+                  onClick={submitSearch}
+                  disabled={searchUiStatus === "searching" || indexBlocked}
+                  className="flex min-h-[40px] shrink-0 items-center justify-center gap-1.5 rounded-[10px] border border-[var(--primary)]/70 bg-black/45 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.14em] font-display text-white shadow-[0_1px_0_rgba(255,255,255,0.14)_inset] transition hover:bg-black/60 disabled:opacity-50"
+                >
+                  {searchUiStatus === "searching" ? (
+                    <>
+                      <Spinner size={10} className="text-white" />
+                      Searching
+                    </>
+                  ) : (
+                    "Search"
+                  )}
+                </button>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+                {indexStatus === "pending" ? (
+                  <LoadingBlock
+                    title="Indexing video for Sentry Search"
+                    subtitle="Captioning frames and generating embeddings. This usually takes a minute or two — searching unlocks the moment indexing finishes."
+                    variant="primary"
+                  />
+                ) : indexStatus === "failed" ? (
+                  <div className="flex flex-col gap-3 rounded-[12px] border border-[var(--destructive)]/35 bg-[var(--destructive)]/8 px-4 py-4 text-center">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--destructive)]">
+                      indexing failed
+                    </p>
+                    <p className="text-[13px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
+                      Couldn&apos;t index this video for search
+                    </p>
+                    <p className="text-[13px] font-semibold text-[var(--muted-foreground)]">
+                      {selectedRecord?.indexError ?? "Check the indexer log under /tmp/impulse_upload_*/index.log."}
+                    </p>
+                  </div>
+                ) : searchUiStatus === "searching" ? (
+                  <LoadingBlock
+                    title="Running Sentry Search"
+                    subtitle={`Embedding query · ranking ${selectedLabel ? `clips in ${selectedLabel}` : "indexed clips"}…`}
+                    variant="primary"
+                  />
+                ) : searchUiStatus === "error" ? (
+                  <p className="rounded-[10px] border border-[var(--destructive)]/35 bg-[var(--destructive)]/8 px-3 py-2.5 text-[13px] font-semibold text-[var(--destructive)]">
+                    {searchErrorMsg ?? "search failed"}
+                  </p>
+                ) : searchUiStatus === "empty" ? (
+                  <p className="text-[13px] font-semibold text-[var(--muted-foreground)]">
+                    No matching clips. Try a different query or run the indexer.
+                  </p>
+                ) : searchResults.length === 0 ? (
+                  <p className="text-[13px] font-semibold text-[var(--muted-foreground)]">
+                    Describe a moment in{" "}
+                    <span className="font-mono text-[12px] font-bold text-[var(--foreground)]/88">
+                      {selectedLabel ?? "the selected video"}
+                    </span>{" "}
+                    to find it.
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {searchResults.map((r, i) => {
+                      const isActive =
+                        activeClip &&
+                        activeClip.videoId === r.videoId &&
+                        activeClip.startSec === r.startSec;
+                      const clipSrc = r.videoUrl?.trim() ?? "";
+                      const duration = Math.max(0.1, r.endSec - r.startSec);
+                      return (
+                        <button
+                          key={`${r.videoId}-${r.startSec}-${i}`}
+                          type="button"
+                          onClick={() => goToSearchHit(r)}
+                          aria-label={`Play clip ${r.startSec.toFixed(1)} to ${r.endSec.toFixed(1)} seconds, match strength ${(r.score * 100).toFixed(0)} percent`}
+                          className={`group w-full overflow-hidden rounded-[12px] border text-left transition ${
+                            isActive
+                              ? "border-[var(--primary)]/50 bg-white/28 ring-2 ring-[var(--ring)]/25"
+                              : "border-[var(--border)]/55 bg-white/24 hover:bg-white/30"
+                          }`}
+                        >
+                          <div className="relative aspect-video w-full overflow-hidden bg-black/40">
+                            {clipSrc ? (
+                              <SearchHitClipPreview
+                                src={clipSrc}
+                                startSec={r.startSec}
+                                endSec={r.endSec}
+                                className="pointer-events-none h-full w-full object-cover"
+                              />
+                            ) : (
+                              <div className="flex h-full min-h-[120px] items-center justify-center px-3 text-center text-[11px] font-semibold text-[var(--muted-foreground)]">
+                                No preview URL for this hit
+                              </div>
+                            )}
+                            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-[linear-gradient(180deg,transparent,rgba(0,0,0,0.72))] px-2.5 pb-2 pt-6">
+                              <div className="flex items-end justify-between gap-2">
+                                <span className="truncate font-mono text-[10px] font-bold tabular-nums text-white/92">
+                                  {r.startSec.toFixed(1)}s – {r.endSec.toFixed(1)}s · {duration.toFixed(1)}s clip
+                                </span>
+                                <span className="shrink-0 rounded-[6px] border border-white/25 bg-black/50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/90">
+                                  {(r.score * 100).toFixed(0)}%
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <div className="shrink-0 border-t border-[var(--border)]/55 px-3 py-2.5">
           <div className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
-            <span>colmap · sparse · path</span>
             <span className="text-[var(--muted-foreground)]/55">/</span>
             <span className="truncate">
               {record?.points ? `${record.points.toLocaleString()} pts` : statusLabel}
             </span>
           </div>
-        </div>
-      </div>
-    </GlassSurface>
-  );
-}
-
-type SearchResult = {
-  videoId: string;
-  videoUrl: string;
-  startSec: number;
-  endSec: number;
-  caption: string;
-  score: number;
-};
-
-function VideoSearchPanel() {
-  const { selected, manifest } = useSelectedVideo();
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<SearchResult[]>([]);
-  const [status, setStatus] = useState<"idle" | "searching" | "error" | "empty">("idle");
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [active, setActive] = useState<SearchResult | null>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-
-  // Wipe results when the selected video changes — they were ranked
-  // against the previous video's segments, not the new one.
-  useEffect(() => {
-    setResults([]);
-    setActive(null);
-    setStatus("idle");
-    setErrorMsg(null);
-  }, [selected?.videoId]);
-
-  const selectedLabel = selected
-    ? manifest?.videos[selected.videoId]?.label ?? selected.videoId
-    : null;
-
-  const submit = async () => {
-    const q = query.trim();
-    if (!q) return;
-    if (!selected?.videoId) {
-      setStatus("error");
-      setErrorMsg("pick a video first");
-      return;
-    }
-    setStatus("searching");
-    setErrorMsg(null);
-    try {
-      const params = new URLSearchParams({
-        q,
-        limit: "6",
-        video: selected.videoId,
-      });
-      const res = await fetch(`/api/search?${params.toString()}`, {
-        cache: "no-store",
-      });
-      const payload = (await res.json()) as {
-        results?: SearchResult[];
-        error?: string;
-      };
-      if (payload.error) {
-        setStatus("error");
-        setErrorMsg(payload.error);
-        setResults([]);
-        return;
-      }
-      setResults(payload.results ?? []);
-      setActive((payload.results ?? [])[0] ?? null);
-      setStatus((payload.results ?? []).length === 0 ? "empty" : "idle");
-    } catch (e) {
-      setStatus("error");
-      setErrorMsg(e instanceof Error ? e.message : "request failed");
-    }
-  };
-
-  // Loop the active clip's segment via media-fragment seek-back.
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!v || !active) return;
-    const onTime = () => {
-      if (v.currentTime >= active.endSec - 0.05) {
-        v.currentTime = active.startSec;
-        v.play().catch(() => {});
-      }
-    };
-    v.currentTime = active.startSec;
-    v.play().catch(() => {});
-    v.addEventListener("timeupdate", onTime);
-    return () => v.removeEventListener("timeupdate", onTime);
-  }, [active]);
-
-  return (
-    <GlassSurface
-      width="100%"
-      height="100%"
-      borderRadius={16}
-      saturation={1.18}
-      backgroundOpacity={0.1}
-      blur={4}
-      className="alerts-glass min-h-[320px] min-w-0 flex-none overflow-hidden"
-    >
-      <div className="flex h-full min-h-0 flex-col overflow-hidden">
-        <div className="flex items-center justify-between border-b border-[var(--primary)]/70 px-3 py-2.5">
-          <div className="min-w-0">
-            <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
-              video_search
-            </p>
-            <p className="mt-1 truncate text-[13px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
-              {selectedLabel ? `Search · ${selectedLabel}` : "Natural-language clip retrieval"}
-            </p>
-          </div>
-          <span className="rounded-[9px] border border-[var(--primary)]/60 bg-white/20 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--foreground)]">
-            GEMMA
-          </span>
-        </div>
-
-        <div className="flex items-center gap-2 border-b border-[var(--primary)]/40 px-3 py-2.5">
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") submit();
-            }}
-            placeholder="e.g. someone walking through a doorway"
-            className="min-w-0 flex-1 rounded-[10px] border border-[var(--primary)]/55 bg-white/85 px-3 py-1.5 text-[12px] font-semibold tracking-[-0.01em] text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]/70 focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/35"
-          />
-          <button
-            type="button"
-            onClick={submit}
-            disabled={status === "searching"}
-            className="rounded-[10px] border border-[var(--primary)]/70 bg-[var(--primary)] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] font-display text-[var(--primary-foreground)] shadow-[0_1px_0_rgba(255,255,255,0.18)_inset] transition hover:opacity-90 disabled:opacity-50"
-          >
-            {status === "searching" ? "Searching…" : "Search"}
-          </button>
-        </div>
-
-        {active ? (
-          <div className="bg-black/8 p-3">
-            <div className="relative aspect-video overflow-hidden rounded-[14px] border border-[var(--primary)]/55 bg-black">
-              <video
-                key={`${active.videoId}-${active.startSec}`}
-                ref={videoRef}
-                src={`${active.videoUrl}#t=${active.startSec},${active.endSec}`}
-                autoPlay
-                muted
-                playsInline
-                className="absolute inset-0 h-full w-full object-cover"
-              />
-              <div className="pointer-events-none absolute left-3 top-3 z-10">
-                <span className="rounded-[9px] border border-[var(--primary)]/60 bg-black/55 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white">
-                  {active.startSec.toFixed(1)}s – {active.endSec.toFixed(1)}s
-                </span>
-              </div>
-            </div>
-            <p className="mt-2 line-clamp-2 text-[12px] font-semibold tracking-[-0.01em] text-[var(--foreground)]">
-              {active.caption}
-            </p>
-          </div>
-        ) : null}
-
-        <div className="max-h-[260px] overflow-y-auto">
-          {status === "error" ? (
-            <p className="px-3 py-3 text-[12px] font-semibold text-[oklch(0.55_0.18_25)]">
-              {errorMsg ?? "search failed"}
-            </p>
-          ) : status === "empty" ? (
-            <p className="px-3 py-3 text-[12px] font-semibold text-[var(--muted-foreground)]">
-              no matching clips. try a different query or run the indexer.
-            </p>
-          ) : results.length === 0 ? (
-            <p className="px-3 py-3 text-[12px] font-semibold text-[var(--muted-foreground)]">
-              describe a moment in <span className="font-mono">{selectedLabel ?? "the selected video"}</span> to find it.
-            </p>
-          ) : (
-            results.map((r, i) => {
-              const selected = active && active.videoId === r.videoId && active.startSec === r.startSec;
-              return (
-                <button
-                  key={`${r.videoId}-${r.startSec}-${i}`}
-                  type="button"
-                  onClick={() => setActive(r)}
-                  className={`flex w-full items-start justify-between gap-3 border-b border-[var(--primary)]/15 px-3 py-2 text-left transition ${
-                    selected ? "bg-[var(--primary)]/8" : "hover:bg-[var(--primary)]/6"
-                  }`}
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
-                      {r.videoId.split("/").pop()} · {r.startSec.toFixed(1)}s
-                    </p>
-                    <p className="mt-1 line-clamp-2 text-[12px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
-                      {r.caption}
-                    </p>
-                  </div>
-                  <span className="shrink-0 rounded-[8px] border border-[var(--primary)]/55 bg-white/20 px-2 py-0.5 text-[10px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
-                    {(r.score * 100).toFixed(0)}
-                  </span>
-                </button>
-              );
-            })
-          )}
         </div>
       </div>
     </GlassSurface>
@@ -1258,6 +1391,527 @@ function WorldButton({ active, onClick }: { active: boolean; onClick: () => void
   );
 }
 
+function UploadCameraPanel({
+  mode,
+  onChangeMode,
+  worldOpen,
+  onToggleWorld,
+}: {
+  mode: "stream" | "upload";
+  onChangeMode: (m: "stream" | "upload") => void;
+  worldOpen: boolean;
+  onToggleWorld: () => void;
+}) {
+  const { selected, setSelected, manifest, refreshManifest, activeClip, setActiveClip } =
+    useSelectedVideo();
+  const [uploadStatus, setUploadStatus] = useState<
+    "idle" | "uploading" | "uploaded" | "error"
+  >("idle");
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadName, setUploadName] = useState<string | null>(null);
+  // Local object URL we can play immediately while the server processes
+  // the upload — gives the user instant feedback before the API responds.
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  // Server-served URL (the ffmpeg-normalised preview under /api/local-video/…),
+  // returned by /api/upload-video. Once we have it we swap to it so the
+  // looping playback survives a manifest refresh.
+  const [serverVideoUrl, setServerVideoUrl] = useState<string | null>(null);
+  const previewObjectUrlRef = useRef<string | null>(null);
+  const [library, setLibrary] = useState<CloudinaryFootage[]>([]);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (previewObjectUrlRef.current) URL.revokeObjectURL(previewObjectUrlRef.current);
+    };
+  }, []);
+
+  // Resolve playback URL: prefer the just-uploaded server URL, fall back
+  // to the local object URL while the upload is mid-flight, then to the
+  // manifest's videoLocalUrl/videoUrl for videos picked from the library.
+  const manifestRecord = selected ? manifest?.videos[selected.videoId] ?? null : null;
+  const playbackUrl =
+    serverVideoUrl ??
+    previewUrl ??
+    (manifestRecord as ManifestRecordExt | null)?.videoLocalUrl ??
+    manifestRecord?.videoUrl ??
+    null;
+
+  // When the user jumps to another indexed clip (e.g. Sentry Search), drop
+  // upload-local URLs so manifest playback for the new videoId wins.
+  useEffect(() => {
+    const id = selected?.videoId;
+    if (!id) return;
+    const rec = manifest?.videos[id] as ManifestRecordExt | undefined;
+    const canonical = rec?.videoLocalUrl ?? rec?.videoUrl ?? null;
+    if (!canonical) return;
+    if (serverVideoUrl && serverVideoUrl !== canonical) {
+      setServerVideoUrl(null);
+    }
+    if (previewUrl) {
+      if (previewObjectUrlRef.current) {
+        URL.revokeObjectURL(previewObjectUrlRef.current);
+        previewObjectUrlRef.current = null;
+      }
+      setPreviewUrl(null);
+    }
+  }, [selected?.videoId, manifest, serverVideoUrl, previewUrl]);
+
+  // Loop within the active search clip when one is set; otherwise the
+  // <video loop> attribute handles full-video looping.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || !activeClip || !playbackUrl) return;
+    const onTime = () => {
+      if (v.currentTime >= activeClip.endSec - 0.05 || v.currentTime < activeClip.startSec - 0.5) {
+        v.currentTime = activeClip.startSec;
+        v.play().catch(() => {});
+      }
+    };
+    try {
+      v.currentTime = activeClip.startSec;
+    } catch {
+      /* readyState may still be 0; the timeupdate handler will catch up */
+    }
+    v.play().catch(() => {});
+    v.addEventListener("timeupdate", onTime);
+    return () => v.removeEventListener("timeupdate", onTime);
+  }, [activeClip, playbackUrl, selected]);
+
+  // Lazy-load the cloudinary library only when the picker opens — same
+  // pattern LandscapeCameraFeed uses.
+  useEffect(() => {
+    if (!pickerOpen) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/footage", { cache: "no-store" });
+        const payload = (await res.json()) as {
+          videos?: CloudinaryFootage[];
+          error?: string;
+        };
+        if (cancelled) return;
+        setLibrary(payload.videos ?? []);
+        setLibraryError(payload.error ?? null);
+      } catch (e) {
+        if (!cancelled) setLibraryError(e instanceof Error ? e.message : "load failed");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pickerOpen]);
+
+  const submitFile = useCallback(
+    async (file: File) => {
+      setUploadStatus("uploading");
+      setUploadError(null);
+      setUploadName(file.name);
+      setServerVideoUrl(null);
+      // Show the picked file immediately as a looping preview while the
+      // server uploads + transcodes. The object URL is revoked once the
+      // server preview takes over (or on unmount).
+      if (previewObjectUrlRef.current) {
+        URL.revokeObjectURL(previewObjectUrlRef.current);
+      }
+      const localUrl = URL.createObjectURL(file);
+      previewObjectUrlRef.current = localUrl;
+      setPreviewUrl(localUrl);
+
+      try {
+        const form = new FormData();
+        form.append("file", file);
+        const res = await fetch("/api/upload-video", { method: "POST", body: form });
+        if (!res.ok) throw new Error(`upload ${res.status}: ${await res.text()}`);
+        const payload = (await res.json()) as {
+          videoId?: string;
+          videoUrl?: string;
+          videoLocalUrl?: string;
+          videoOriginalLocalUrl?: string;
+        };
+        const playable =
+          payload.videoLocalUrl ?? payload.videoOriginalLocalUrl ?? payload.videoUrl ?? null;
+        if (playable) setServerVideoUrl(playable);
+        if (payload.videoId) {
+          setSelected({ videoId: payload.videoId, source: "user" });
+          await refreshManifest();
+        }
+        setUploadStatus("uploaded");
+      } catch (e) {
+        setUploadStatus("error");
+        setUploadError(e instanceof Error ? e.message : "upload failed");
+      }
+    },
+    [setSelected, refreshManifest]
+  );
+
+  const onUploadPick = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    await submitFile(file);
+  };
+
+  const onDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) await submitFile(file);
+  };
+
+  const pickedRecord = selected ? manifest?.videos[selected.videoId] ?? null : null;
+  const indexStatus = pickedRecord?.indexStatus;
+  const showIndexLoader =
+    uploadStatus !== "uploading" && indexStatus === "pending";
+  const statusLabel =
+    uploadStatus === "uploading"
+      ? "uploading"
+      : uploadStatus === "error"
+        ? "upload failed"
+        : indexStatus === "pending"
+          ? "indexing"
+          : indexStatus === "failed"
+            ? "index failed"
+            : uploadStatus === "uploaded"
+              ? "uploaded"
+              : "ready";
+
+  return (
+    <GlassSurface
+      width="100%"
+      height="100%"
+      borderRadius={16}
+      saturation={1.18}
+      backgroundOpacity={0.1}
+      blur={4}
+      className="alerts-glass flex min-h-[min(78vh,820px)] w-full min-w-0 flex-1 flex-col overflow-hidden"
+    >
+      <div className="flex h-full min-h-0 flex-col overflow-hidden">
+        <div className="flex items-center justify-between border-b border-[var(--border)]/70 px-3 py-2.5">
+          <div className="min-w-0">
+            <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
+              upload_video
+            </p>
+            <p className="mt-1 truncate text-[13px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
+              {uploadName ?? pickedRecord?.label ?? "Drop or pick a video"}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <StatusPill label={statusLabel} />
+            <ModeToggle mode={mode} onChange={onChangeMode} />
+            <WorldButton active={worldOpen} onClick={onToggleWorld} />
+          </div>
+        </div>
+
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <div
+            ref={dragRef}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={onDrop}
+            className={`relative aspect-video overflow-hidden border-b border-[var(--border)]/70 bg-black/12 transition ${
+              dragOver ? "bg-[var(--primary)]/10" : ""
+            }`}
+          >
+            {playbackUrl ? (
+              <video
+                key={playbackUrl}
+                ref={videoRef}
+                src={playbackUrl}
+                autoPlay
+                loop={!activeClip}
+                muted
+                playsInline
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+            ) : (
+              <>
+                <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.18),rgba(255,255,255,0.04))]" />
+                <div
+                  className={`absolute inset-3 rounded-[14px] border border-dashed bg-white/10 transition ${
+                    dragOver ? "border-[var(--primary)]" : "border-[var(--border)]/55"
+                  }`}
+                />
+              </>
+            )}
+            {showIndexLoader ? (
+              <div className="pointer-events-none absolute right-3 bottom-3 z-10 flex items-center gap-2 rounded-[10px] border border-[var(--primary)]/60 bg-black/60 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] font-display text-white">
+                <Spinner size={12} className="text-white" />
+                indexing for sentry search…
+              </div>
+            ) : null}
+            {activeClip ? (
+              <div className="pointer-events-none absolute left-3 top-3 z-10 flex max-w-[80%] flex-col items-start gap-1.5">
+                <span className="rounded-[9px] border border-[var(--primary)]/60 bg-black/55 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white">
+                  {activeClip.startSec.toFixed(1)}s – {activeClip.endSec.toFixed(1)}s · sentry hit
+                </span>
+                <span className="line-clamp-2 rounded-[8px] bg-black/45 px-2 py-1 text-[11px] font-semibold text-white/92">
+                  {activeClip.caption}
+                </span>
+              </div>
+            ) : null}
+            {activeClip ? (
+              <button
+                type="button"
+                onClick={() => setActiveClip(null)}
+                className="absolute right-3 top-3 z-10 rounded-[9px] border border-[var(--primary)]/60 bg-black/55 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white transition hover:bg-black/75"
+              >
+                clear clip
+              </button>
+            ) : null}
+            {playbackUrl ? null : (
+              <div
+                className={`absolute inset-0 flex flex-col items-center justify-center gap-3 ${
+                  uploadStatus === "uploading" ? "bg-black/15" : ""
+                }`}
+              >
+                {uploadStatus === "uploading" ? (
+                  <div className="flex items-center gap-2 text-[var(--foreground)]">
+                    <Spinner size={18} />
+                    <span className="text-[11px] font-bold uppercase tracking-[0.14em] font-display">
+                      uploading…
+                    </span>
+                  </div>
+                ) : null}
+                <div className="rounded-[12px] border border-[var(--border)]/60 bg-white/32 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--foreground)]">
+                  {uploadStatus === "uploading"
+                    ? `uploading · ${uploadName ?? "video"}`
+                    : uploadStatus === "error"
+                      ? "upload failed"
+                      : "drop a video or use the picker"}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadStatus === "uploading"}
+                    className="rounded-[10px] border border-[var(--primary)]/70 bg-[var(--primary)] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] font-display text-[var(--primary-foreground)] shadow-[0_1px_0_rgba(255,255,255,0.18)_inset] transition hover:opacity-90 disabled:opacity-50"
+                  >
+                    Upload from device
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPickerOpen((v) => !v)}
+                    className="rounded-[10px] border border-[var(--primary)]/70 bg-white/85 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] font-display text-[var(--foreground)] transition hover:bg-white"
+                  >
+                    Library
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Persistent corner controls: once a video is loaded, the
+                Library + Upload buttons live in the bottom-right corner of
+                the video card so the user can swap clips without losing
+                the playback view. */}
+            {playbackUrl ? (
+              <div className="absolute bottom-3 right-3 z-10 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadStatus === "uploading"}
+                  className="rounded-[10px] border border-[var(--primary)]/70 bg-black/55 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] font-display text-white shadow-[0_1px_0_rgba(255,255,255,0.18)_inset] transition hover:bg-black/75 disabled:opacity-50"
+                >
+                  {uploadStatus === "uploading" ? (
+                    <span className="flex items-center gap-1.5">
+                      <Spinner size={10} className="text-white" />
+                      uploading
+                    </span>
+                  ) : (
+                    "Upload"
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPickerOpen((v) => !v)}
+                  className="rounded-[10px] border border-[var(--primary)]/70 bg-white/90 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] font-display text-[var(--foreground)] transition hover:bg-white"
+                >
+                  Library
+                </button>
+              </div>
+            ) : null}
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="video/*"
+              className="hidden"
+              onChange={onUploadPick}
+            />
+
+            {pickerOpen ? (
+              <div className="absolute bottom-14 right-3 z-20 w-[280px] overflow-hidden rounded-[14px] border border-[var(--primary)] bg-white/96 shadow-[0_18px_48px_rgba(15,15,15,0.18)] backdrop-blur">
+                <div className="border-b border-[var(--primary)]/40 px-3 py-2">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
+                    Library
+                  </p>
+                </div>
+                <div className="max-h-[220px] overflow-y-auto">
+                  {library.length === 0 ? (
+                    <p className="px-3 py-3 text-[12px] font-semibold text-[var(--muted-foreground)]">
+                      {libraryError ?? "loading…"}
+                    </p>
+                  ) : (
+                    library.map((v) => (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => {
+                          if (v.source === "local") {
+                            const base = v.name.replace(/\.[^.]+$/, "");
+                            setSelected({
+                              videoId: `impulse__uploads__${base}`,
+                              source: "local",
+                            });
+                          } else {
+                            setSelected({ videoId: publicIdToVideoId(v.id), source: "cloudinary" });
+                          }
+                          setPickerOpen(false);
+                        }}
+                        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition hover:bg-[var(--primary)]/8"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-[12px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
+                            {v.name}
+                          </p>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="px-3 py-3">
+            <div className="rounded-[14px] border border-dashed border-[var(--border)]/55 bg-white/10 px-3 py-3">
+              <p className="text-[14px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
+                {uploadStatus === "uploaded"
+                  ? "Processing pipeline started"
+                  : uploadStatus === "error"
+                    ? "Upload failed"
+                    : "Upload a clip to build a splat + index it for search"}
+              </p>
+              <p className="mt-2 text-[13px] font-semibold text-[var(--muted-foreground)]">
+                {uploadStatus === "error"
+                  ? uploadError ?? "Try again or check the server logs."
+                  : uploadStatus === "uploaded"
+                    ? "Gaussian splat training and Sentry Search indexing are running. Watch the right column for progress."
+                    : "Switch to Stream to wait for an iPhone sender instead."}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </GlassSurface>
+  );
+}
+
+function ModeToggle({
+  mode,
+  onChange,
+}: {
+  mode: "stream" | "upload";
+  onChange: (m: "stream" | "upload") => void;
+}) {
+  return (
+    <GlassSurface
+      width="auto"
+      height={34}
+      borderRadius={10}
+      saturation={1.12}
+      backgroundOpacity={0.08}
+      blur={4}
+      className="alerts-glass alerts-glass-press"
+    >
+      <div className="flex h-full items-stretch">
+        {(["stream", "upload"] as const).map((m) => {
+          const active = mode === m;
+          return (
+            <button
+              key={m}
+              type="button"
+              onClick={() => onChange(m)}
+              className={`px-3 text-[10px] font-bold uppercase tracking-[0.14em] transition ${
+                active
+                  ? "text-[var(--foreground)]"
+                  : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              {m}
+            </button>
+          );
+        })}
+      </div>
+    </GlassSurface>
+  );
+}
+
+function Spinner({
+  size = 14,
+  className = "",
+}: {
+  size?: number;
+  className?: string;
+}) {
+  return (
+    <span
+      className={`inline-block animate-spin rounded-full border-2 border-current border-t-transparent ${className}`}
+      style={{ width: size, height: size }}
+      aria-hidden
+    />
+  );
+}
+
+function LoadingBlock({
+  title,
+  subtitle,
+  variant = "primary",
+}: {
+  title: string;
+  subtitle?: string;
+  variant?: "primary" | "muted";
+}) {
+  const accent =
+    variant === "primary"
+      ? "text-[var(--primary)]"
+      : "text-[var(--muted-foreground)]";
+  return (
+    <div className="flex h-full min-h-[180px] flex-col items-center justify-center gap-3 px-6 py-8 text-center">
+      <div className={`flex items-center gap-2 ${accent}`}>
+        <Spinner size={20} />
+        <span className="flex items-center gap-1">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
+          <span
+            className="h-1.5 w-1.5 animate-pulse rounded-full bg-current"
+            style={{ animationDelay: "150ms" }}
+          />
+          <span
+            className="h-1.5 w-1.5 animate-pulse rounded-full bg-current"
+            style={{ animationDelay: "300ms" }}
+          />
+        </span>
+      </div>
+      <p className="text-[13px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
+        {title}
+      </p>
+      {subtitle ? (
+        <p className="max-w-[320px] text-[12px] font-semibold text-[var(--muted-foreground)]">
+          {subtitle}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function StatusPill({ label, compact = false }: { label: string; compact?: boolean }) {
   return (
     <span
@@ -1297,11 +1951,15 @@ function EmptyCameraPreview({
   description,
   worldOpen,
   onToggleWorld,
+  mode,
+  onChangeMode,
 }: {
   title: string;
   description: string;
   worldOpen: boolean;
   onToggleWorld: () => void;
+  mode: "stream" | "upload";
+  onChangeMode: (m: "stream" | "upload") => void;
 }) {
   return (
     <GlassSurface
@@ -1324,9 +1982,7 @@ function EmptyCameraPreview({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <span className="rounded-[9px] border border-[var(--border)]/60 bg-white/20 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--foreground)]">
-              idle
-            </span>
+            <ModeToggle mode={mode} onChange={onChangeMode} />
             <WorldButton active={worldOpen} onClick={onToggleWorld} />
           </div>
         </div>

@@ -1,30 +1,183 @@
 {
   "version": 1,
   "videos": {
-    "impulse__sparse_source": {
-      "videoId": "impulse__sparse_source",
-      "videoUrl": "https://res.cloudinary.com/dylbj2vom/video/upload/v1777177030/impulse/sparse_source.mp4",
-      "videoLocalPath": "/clouds/video.mp4",
-      "lbmpPath": "/clouds/sparse.lbmp",
-      "pathPath": "/clouds/sparse.path.json",
+    "impulse__uploads__1777187581280_2298a637_IMG_0719": {
+      "videoId": "impulse__uploads__1777187581280_2298a637_IMG_0719",
+      "videoUrl": "/api/local-video/1777187581280_2298a637_IMG_0719.mp4",
+      "label": "IMG_0719",
+      "lbmpPath": "/clouds/splats/impulse__uploads__1777187581280_2298a637_IMG_0719/sparse.lbmp",
+      "pathPath": "/clouds/splats/impulse__uploads__1777187581280_2298a637_IMG_0719/sparse.path.json",
       "status": "ready",
-      "label": "sparse_source"
+      "points": 21587,
+      "splatStatus": "ready",
+      "splatPath": "/clouds/splats/impulse__uploads__1777187581280_2298a637_IMG_0719/scene.splat"
     },
-    "impulse__uploads__1777180029794_65e6c325_IMG_0719": {
-      "videoId": "impulse__uploads__1777180029794_65e6c325_IMG_0719",
-      "videoUrl": "https://res.cloudinary.com/dylbj2vom/video/upload/v1777180080/impulse/uploads/1777180029794_65e6c325_IMG_0719.mp4",
-      "label": "IMG_0719",
-      "lbmpPath": "/clouds/splats/impulse__uploads__1777180029794_65e6c325_IMG_0719/sparse.lbmp",
-      "pathPath": "/clouds/splats/impulse__uploads__1777180029794_65e6c325_IMG_0719/sparse.path.json",
-      "status": "processing"
+    "impulse__uploads__1777188019560_91c8ccc2_IMG_0718": {
+      "videoId": "impulse__uploads__1777188019560_91c8ccc2_IMG_0718",
+      "videoUrl": "/api/local-video/1777188019560_91c8ccc2_IMG_0718.mp4",
+      "label": "IMG_0718",
+      "lbmpPath": "/clouds/splats/impulse__uploads__1777188019560_91c8ccc2_IMG_0718/sparse.lbmp",
+      "pathPath": "/clouds/splats/impulse__uploads__1777188019560_91c8ccc2_IMG_0718/sparse.path.json",
+      "status": "failed",
+      "splatStatus": "ready",
+      "splatPath": "/clouds/splats/impulse__uploads__1777188019560_91c8ccc2_IMG_0718/scene.splat"
     },
-    "impulse__uploads__1777180199501_6c0ecfe7_IMG_0719": {
-      "videoId": "impulse__uploads__1777180199501_6c0ecfe7_IMG_0719",
-      "videoUrl": "https://res.cloudinary.com/dylbj2vom/video/upload/v1777180273/impulse/uploads/1777180199501_6c0ecfe7_IMG_0719.mp4",
+    "impulse__uploads__1777188625008_0b0f8ef5_IMG_0719": {
+      "videoId": "impulse__uploads__1777188625008_0b0f8ef5_IMG_0719",
+      "videoUrl": "/api/local-video/1777188625008_0b0f8ef5_IMG_0719.mp4",
       "label": "IMG_0719",
-      "lbmpPath": "/clouds/splats/impulse__uploads__1777180199501_6c0ecfe7_IMG_0719/sparse.lbmp",
-      "pathPath": "/clouds/splats/impulse__uploads__1777180199501_6c0ecfe7_IMG_0719/sparse.path.json",
-      "status": "processing"
+      "lbmpPath": "/clouds/splats/impulse__uploads__1777188625008_0b0f8ef5_IMG_0719/sparse.lbmp",
+      "pathPath": "/clouds/splats/impulse__uploads__1777188625008_0b0f8ef5_IMG_0719/sparse.path.json",
+      "status": "failed",
+      "splatStatus": "ready",
+      "splatPath": "/clouds/splats/impulse__uploads__1777188625008_0b0f8ef5_IMG_0719/scene.splat"
+    },
+    "impulse__uploads__1777188799408_643b177e_IMG_0718": {
+      "videoId": "impulse__uploads__1777188799408_643b177e_IMG_0718",
+      "videoUrl": "/api/local-video/1777188799408_643b177e_IMG_0718.mp4",
+      "label": "IMG_0718",
+      "lbmpPath": "/clouds/splats/impulse__uploads__1777188799408_643b177e_IMG_0718/sparse.lbmp",
+      "pathPath": "/clouds/splats/impulse__uploads__1777188799408_643b177e_IMG_0718/sparse.path.json",
+      "status": "failed",
+      "splatStatus": "ready",
+      "splatPath": "/clouds/splats/impulse__uploads__1777188799408_643b177e_IMG_0718/scene.splat"
+    },
+    "impulse__uploads__1777188784878_2a847a11_IMG_0718": {
+      "videoId": "impulse__uploads__1777188784878_2a847a11_IMG_0718",
+      "videoUrl": "/api/local-video/1777188784878_2a847a11_IMG_0718.mov",
+      "label": "IMG_0718",
+      "lbmpPath": "/clouds/splats/impulse__uploads__1777188784878_2a847a11_IMG_0718/sparse.lbmp",
+      "pathPath": "/clouds/splats/impulse__uploads__1777188784878_2a847a11_IMG_0718/sparse.path.json",
+      "status": "failed",
+      "splatStatus": "ready",
+      "splatPath": "/clouds/splats/impulse__uploads__1777188784878_2a847a11_IMG_0718/scene.splat"
+    },
+    "impulse__uploads__1777189279162_3f24fb80_IMG_0719": {
+      "videoId": "impulse__uploads__1777189279162_3f24fb80_IMG_0719",
+      "videoUrl": "/api/local-video/1777189279162_3f24fb80_IMG_0719.preview.mp4",
+      "label": "IMG_0719",
+      "lbmpPath": "/clouds/splats/impulse__uploads__1777189279162_3f24fb80_IMG_0719/sparse.lbmp",
+      "pathPath": "/clouds/splats/impulse__uploads__1777189279162_3f24fb80_IMG_0719/sparse.path.json",
+      "status": "failed",
+      "splatStatus": "ready",
+      "splatPath": "/clouds/splats/impulse__uploads__1777189279162_3f24fb80_IMG_0719/scene.splat"
+    },
+    "impulse__uploads__1777189388486_aa8a177b_IMG_0718": {
+      "videoId": "impulse__uploads__1777189388486_aa8a177b_IMG_0718",
+      "videoUrl": "/api/local-video/1777189388486_aa8a177b_IMG_0718.preview.mp4",
+      "label": "IMG_0718",
+      "lbmpPath": "/clouds/splats/impulse__uploads__1777189388486_aa8a177b_IMG_0718/sparse.lbmp",
+      "pathPath": "/clouds/splats/impulse__uploads__1777189388486_aa8a177b_IMG_0718/sparse.path.json",
+      "status": "failed"
+    },
+    "impulse__uploads__1777190980128_a994f70b_IMG_0719": {
+      "videoId": "impulse__uploads__1777190980128_a994f70b_IMG_0719",
+      "videoUrl": "/api/local-video/1777190980128_a994f70b_IMG_0719.preview.mp4",
+      "videoLocalUrl": "/api/local-video/1777190980128_a994f70b_IMG_0719.preview.mp4",
+      "videoLocalPath": "/Users/advaith/Dev/lahacks/LAHacks2026/assets/output/input/1777190980128_a994f70b_IMG_0719.preview.mp4",
+      "videoOriginalLocalUrl": "/api/local-video/1777190980128_a994f70b_IMG_0719.mp4",
+      "videoOriginalLocalPath": "/Users/advaith/Dev/lahacks/LAHacks2026/assets/output/input/1777190980128_a994f70b_IMG_0719.mp4",
+      "status": "failed",
+      "label": "IMG_0719",
+      "lbmpPath": "/clouds/splats/impulse__uploads__1777190980128_a994f70b_IMG_0719/sparse.lbmp",
+      "pathPath": "/clouds/splats/impulse__uploads__1777190980128_a994f70b_IMG_0719/sparse.path.json",
+      "splatStatus": "ready",
+      "splatJobId": "fc-01KQ4DEGNH637EVXMPWA15Z2MX",
+      "splatPath": "/clouds/splats/impulse__uploads__1777190980128_a994f70b_IMG_0719/scene.splat"
+    },
+    "impulse__uploads__1777192219453_71f71a15_IMG_0718": {
+      "videoId": "impulse__uploads__1777192219453_71f71a15_IMG_0718",
+      "videoUrl": "/api/local-video/1777192219453_71f71a15_IMG_0718.preview.mp4",
+      "videoLocalUrl": "/api/local-video/1777192219453_71f71a15_IMG_0718.preview.mp4",
+      "videoLocalPath": "/Users/advaith/Dev/lahacks/LAHacks2026/assets/output/input/1777192219453_71f71a15_IMG_0718.preview.mp4",
+      "videoOriginalLocalUrl": "/api/local-video/1777192219453_71f71a15_IMG_0718.mp4",
+      "videoOriginalLocalPath": "/Users/advaith/Dev/lahacks/LAHacks2026/assets/output/input/1777192219453_71f71a15_IMG_0718.mp4",
+      "status": "failed",
+      "label": "IMG_0718",
+      "lbmpPath": "/clouds/splats/impulse__uploads__1777192219453_71f71a15_IMG_0718/sparse.lbmp",
+      "pathPath": "/clouds/splats/impulse__uploads__1777192219453_71f71a15_IMG_0718/sparse.path.json"
+    },
+    "impulse__uploads__1777194854509_fdd6cd41_IMG_0718": {
+      "videoId": "impulse__uploads__1777194854509_fdd6cd41_IMG_0718",
+      "videoUrl": "/api/local-video/1777194854509_fdd6cd41_IMG_0718.preview.mp4",
+      "videoLocalUrl": "/api/local-video/1777194854509_fdd6cd41_IMG_0718.preview.mp4",
+      "videoLocalPath": "/Users/advaith/Dev/lahacks/LAHacks2026/assets/output/input/1777194854509_fdd6cd41_IMG_0718.preview.mp4",
+      "videoOriginalLocalUrl": "/api/local-video/1777194854509_fdd6cd41_IMG_0718.mp4",
+      "videoOriginalLocalPath": "/Users/advaith/Dev/lahacks/LAHacks2026/assets/output/input/1777194854509_fdd6cd41_IMG_0718.mp4",
+      "status": "failed",
+      "label": "IMG_0718",
+      "lbmpPath": "/clouds/splats/impulse__uploads__1777194854509_fdd6cd41_IMG_0718/sparse.lbmp",
+      "pathPath": "/clouds/splats/impulse__uploads__1777194854509_fdd6cd41_IMG_0718/sparse.path.json",
+      "splatStatus": "ready",
+      "splatJobId": "fc-01KQ4H3RK1D763AX1BQZZGEKQD",
+      "splatPath": "/clouds/splats/impulse__uploads__1777194854509_fdd6cd41_IMG_0718/scene.splat"
+    },
+    "impulse__uploads__1777195520879_f4f44b0f_IMG_0719": {
+      "videoId": "impulse__uploads__1777195520879_f4f44b0f_IMG_0719",
+      "videoUrl": "/api/local-video/1777195520879_f4f44b0f_IMG_0719.preview.mp4",
+      "videoLocalUrl": "/api/local-video/1777195520879_f4f44b0f_IMG_0719.preview.mp4",
+      "videoLocalPath": "/Users/advaith/Dev/lahacks/LAHacks2026/assets/output/input/1777195520879_f4f44b0f_IMG_0719.preview.mp4",
+      "videoOriginalLocalUrl": "/api/local-video/1777195520879_f4f44b0f_IMG_0719.mp4",
+      "videoOriginalLocalPath": "/Users/advaith/Dev/lahacks/LAHacks2026/assets/output/input/1777195520879_f4f44b0f_IMG_0719.mp4",
+      "status": "failed",
+      "label": "IMG_0719",
+      "lbmpPath": "/clouds/splats/impulse__uploads__1777195520879_f4f44b0f_IMG_0719/sparse.lbmp",
+      "pathPath": "/clouds/splats/impulse__uploads__1777195520879_f4f44b0f_IMG_0719/sparse.path.json",
+      "splatStatus": "ready",
+      "splatJobId": "fc-01KQ4HSFTYCCR399R74H9SSY7B",
+      "error": "Command '['colmap', 'sequential_matcher', '--database_path', '/var/folders/72/l_k46zps4vl2t4cjb7k6ywtw0000gn/T/colmap_impulse__uploads__1777195520879_f4f44b0f_IMG_0719_9qvo43mc/database.db', '--SiftMatching.use_gpu', '0', '--SequentialMatching.overlap', '10', '--SequentialMatching.quadratic_overlap', '1']' returned non-zero exit status 1.",
+      "splatPath": "/clouds/splats/impulse__uploads__1777195520879_f4f44b0f_IMG_0719/scene.splat"
+    },
+    "impulse__uploads__1777196952599_7c82c483_IMG_0719": {
+      "videoId": "impulse__uploads__1777196952599_7c82c483_IMG_0719",
+      "videoUrl": "/api/local-video/1777196952599_7c82c483_IMG_0719.preview.mp4",
+      "videoLocalUrl": "/api/local-video/1777196952599_7c82c483_IMG_0719.preview.mp4",
+      "videoLocalPath": "/Users/advaith/Dev/lahacks/LAHacks2026/assets/output/input/1777196952599_7c82c483_IMG_0719.preview.mp4",
+      "videoOriginalLocalUrl": "/api/local-video/1777196952599_7c82c483_IMG_0719.mp4",
+      "videoOriginalLocalPath": "/Users/advaith/Dev/lahacks/LAHacks2026/assets/output/input/1777196952599_7c82c483_IMG_0719.mp4",
+      "status": "failed",
+      "label": "IMG_0719",
+      "lbmpPath": "/clouds/splats/impulse__uploads__1777196952599_7c82c483_IMG_0719/sparse.lbmp",
+      "pathPath": "/clouds/splats/impulse__uploads__1777196952599_7c82c483_IMG_0719/sparse.path.json",
+      "splatStatus": "failed",
+      "indexStatus": "ready",
+      "splatJobId": "fc-01KQ4K50YWQG9XHY083T343DE5",
+      "error": "Command '['colmap', 'sequential_matcher', '--database_path', '/var/folders/72/l_k46zps4vl2t4cjb7k6ywtw0000gn/T/colmap_impulse__uploads__1777196952599_7c82c483_IMG_0719_l_w9zgto/database.db', '--SiftMatching.use_gpu', '0', '--SequentialMatching.overlap', '10', '--SequentialMatching.quadratic_overlap', '1']' returned non-zero exit status 1.",
+      "splatError": "fetch failed"
+    },
+    "impulse__uploads__1777197210371_d26fab43_IMG_0719": {
+      "videoId": "impulse__uploads__1777197210371_d26fab43_IMG_0719",
+      "videoUrl": "/api/local-video/1777197210371_d26fab43_IMG_0719.preview.mp4",
+      "videoLocalUrl": "/api/local-video/1777197210371_d26fab43_IMG_0719.preview.mp4",
+      "videoLocalPath": "/Users/advaith/Dev/lahacks/LAHacks2026/assets/output/input/1777197210371_d26fab43_IMG_0719.preview.mp4",
+      "videoOriginalLocalUrl": "/api/local-video/1777197210371_d26fab43_IMG_0719.mp4",
+      "videoOriginalLocalPath": "/Users/advaith/Dev/lahacks/LAHacks2026/assets/output/input/1777197210371_d26fab43_IMG_0719.mp4",
+      "status": "failed",
+      "label": "IMG_0719",
+      "lbmpPath": "/clouds/splats/impulse__uploads__1777197210371_d26fab43_IMG_0719/sparse.lbmp",
+      "pathPath": "/clouds/splats/impulse__uploads__1777197210371_d26fab43_IMG_0719/sparse.path.json",
+      "splatStatus": "ready",
+      "indexStatus": "ready",
+      "splatJobId": "fc-01KQ4KD8Z84K3A88N2SN783T1K",
+      "error": "Command '['colmap', 'sequential_matcher', '--database_path', '/var/folders/72/l_k46zps4vl2t4cjb7k6ywtw0000gn/T/colmap_impulse__uploads__1777197210371_d26fab43_IMG_0719_w151ebn5/database.db', '--SiftMatching.use_gpu', '0', '--SequentialMatching.overlap', '10', '--SequentialMatching.quadratic_overlap', '1']' returned non-zero exit status 1.",
+      "splatPath": "/clouds/splats/impulse__uploads__1777197210371_d26fab43_IMG_0719/scene.splat"
+    },
+    "impulse__uploads__1777198124471_7b5596d5_IMG_0719": {
+      "videoId": "impulse__uploads__1777198124471_7b5596d5_IMG_0719",
+      "videoUrl": "/api/local-video/1777198124471_7b5596d5_IMG_0719.preview.mp4",
+      "videoLocalUrl": "/api/local-video/1777198124471_7b5596d5_IMG_0719.preview.mp4",
+      "videoLocalPath": "/Users/advaith/Dev/lahacks/LAHacks2026/assets/output/input/1777198124471_7b5596d5_IMG_0719.preview.mp4",
+      "videoOriginalLocalUrl": "/api/local-video/1777198124471_7b5596d5_IMG_0719.mp4",
+      "videoOriginalLocalPath": "/Users/advaith/Dev/lahacks/LAHacks2026/assets/output/input/1777198124471_7b5596d5_IMG_0719.mp4",
+      "status": "failed",
+      "label": "IMG_0719",
+      "lbmpPath": "/clouds/splats/impulse__uploads__1777198124471_7b5596d5_IMG_0719/sparse.lbmp",
+      "pathPath": "/clouds/splats/impulse__uploads__1777198124471_7b5596d5_IMG_0719/sparse.path.json",
+      "splatStatus": "ready",
+      "indexStatus": "ready",
+      "splatJobId": "fc-01KQ4M8TSN5BKDPFW97D5WGG7A",
+      "error": "Command '['colmap', 'sequential_matcher', '--database_path', '/var/folders/72/l_k46zps4vl2t4cjb7k6ywtw0000gn/T/colmap_impulse__uploads__1777198124471_7b5596d5_IMG_0719_vxltj1ow/database.db', '--SiftMatching.use_gpu', '0', '--SequentialMatching.overlap', '10', '--SequentialMatching.quadratic_overlap', '1']' returned non-zero exit status 1.",
+      "splatPath": "/clouds/splats/impulse__uploads__1777198124471_7b5596d5_IMG_0719/scene.splat"
     }
   }
 }

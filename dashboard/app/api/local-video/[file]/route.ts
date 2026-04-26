@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { createReadStream, statSync } from "fs";
+import { createReadStream, existsSync, statSync } from "fs";
+import { Readable } from "stream";
 import path from "path";
-import type { ReadStream } from "fs";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 const CONTENT_TYPES: Record<string, string> = {
   ".mp4": "video/mp4",
@@ -14,18 +15,39 @@ const CONTENT_TYPES: Record<string, string> = {
 };
 
 function inputDir(): string {
-  // process.cwd() at runtime is dashboard/, so the repo root is one up.
+  // process.cwd() at runtime is the dashboard project root.
   return path.resolve(process.cwd(), "..", "assets", "output", "input");
 }
 
 function safeResolve(name: string): string | null {
-  // Block traversal: reject anything that escapes the input dir after
-  // normalization. encodeURIComponent on the writer side gives us a flat
-  // filename, but defense-in-depth still matters.
   const dir = inputDir();
   const resolved = path.resolve(dir, name);
   if (path.dirname(resolved) !== dir) return null;
   return resolved;
+}
+
+function previewNameFor(name: string): string {
+  const ext = path.extname(name);
+  const stem = ext ? name.slice(0, -ext.length) : name;
+  return `${stem}.preview.mp4`;
+}
+
+function resolvePlayablePath(fileName: string): string | null {
+  const originalPath = safeResolve(fileName);
+  if (!originalPath) return null;
+
+  if (!/\.preview\.mp4$/i.test(fileName)) {
+    const previewPath = safeResolve(previewNameFor(fileName));
+    if (previewPath && existsSync(previewPath)) return previewPath;
+  }
+
+  return originalPath;
+}
+
+function nodeToWeb(stream: NodeJS.ReadableStream): ReadableStream<Uint8Array> {
+  // Readable.toWeb exists in Node 18+ but its types lag in some setups —
+  // cast to a typed return so consumers get Uint8Array chunks.
+  return Readable.toWeb(stream as Readable) as unknown as ReadableStream<Uint8Array>;
 }
 
 export async function GET(
@@ -34,7 +56,7 @@ export async function GET(
 ) {
   const { file: rawFile } = await params;
   const fileName = decodeURIComponent(rawFile);
-  const filePath = safeResolve(fileName);
+  const filePath = resolvePlayablePath(fileName);
   if (!filePath) {
     return NextResponse.json({ error: "invalid path" }, { status: 400 });
   }
@@ -66,7 +88,7 @@ export async function GET(
       }
       const chunkSize = end - start + 1;
       const stream = createReadStream(filePath, { start, end });
-      return new NextResponse(toWebStream(stream), {
+      return new NextResponse(nodeToWeb(stream), {
         status: 206,
         headers: {
           "Content-Range": `bytes ${start}-${end}/${total}`,
@@ -80,28 +102,13 @@ export async function GET(
   }
 
   const stream = createReadStream(filePath);
-  return new NextResponse(toWebStream(stream), {
+  return new NextResponse(nodeToWeb(stream), {
     status: 200,
     headers: {
       "Accept-Ranges": "bytes",
       "Content-Length": String(total),
       "Content-Type": contentType,
       "Cache-Control": "no-store",
-    },
-  });
-}
-
-function toWebStream(stream: ReadStream): ReadableStream<Uint8Array> {
-  return new ReadableStream<Uint8Array>({
-    start(controller) {
-      stream.on("data", (chunk) => {
-        controller.enqueue(chunk instanceof Buffer ? new Uint8Array(chunk) : chunk as Uint8Array);
-      });
-      stream.on("end", () => controller.close());
-      stream.on("error", (err) => controller.error(err));
-    },
-    cancel() {
-      stream.destroy();
     },
   });
 }

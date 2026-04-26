@@ -86,6 +86,7 @@ function listLocalInputs(): FootageEntry[] {
   const out: FootageEntry[] = [];
   for (const name of names) {
     if (!VIDEO_EXTS.has(path.extname(name).toLowerCase())) continue;
+    if (/\.preview\.mp4$/i.test(name)) continue;
     const full = path.join(dir, name);
     let stat;
     try {
@@ -140,14 +141,12 @@ export async function GET() {
     cloudError = e instanceof Error ? e.message : "cloudinary error";
   }
 
-  // Local entries come first; Cloudinary entries are deduplicated against
-  // local matches by basename so we don't show the same video twice.
-  const localBaseNames = new Set(local.map((v) => v.name.replace(/\.[^.]+$/, "")));
-  const dedupedCloud = cloudVideos.filter((v) => !localBaseNames.has(v.name));
-  const videos = [...local, ...dedupedCloud];
-
+  // Only show locally-persisted footage in the picker. Cloudinary entries
+  // (e.g. older test uploads like sparse_source / IMG_0719) are kept on the
+  // server as backups but no longer surfaced here.
+  void cloudVideos;
   return NextResponse.json({
-    videos,
+    videos: local,
     ...(cloudError ? { error: cloudError } : {}),
   });
 }
