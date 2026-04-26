@@ -4,7 +4,7 @@
 # windows used by ingest/windows.py.
 #
 # Filename format must match ingest/config.py::clip_filename, i.e.
-#   clip-<unix_epoch_seconds>.mp4
+#   <camera_id>/clip-<unix_epoch_seconds>.mp4
 #
 # The API serves whatever files are present in $CLIPS_DIR via /clips/<name>.
 #
@@ -15,8 +15,11 @@ set -euo pipefail
 
 INPUT="${INPUT:-/dev/video0}"
 CLIPS_DIR="${CLIPS_DIR:-/data/clips}"
+CAMERA_ID_RAW="${CAMERA_ID:-main-camera}"
+CAMERA_ID="$(printf '%s' "$CAMERA_ID_RAW" | tr -cs '[:alnum:]._- ' '-' | sed 's/^-*//; s/-*$//')"
+CAMERA_ID="${CAMERA_ID:-main-camera}"
 
-mkdir -p "$CLIPS_DIR"
+mkdir -p "$CLIPS_DIR/$CAMERA_ID"
 
 exec ffmpeg \
     -hide_banner \
@@ -32,4 +35,4 @@ exec ffmpeg \
     -segment_format mp4 \
     -movflags +faststart \
     -strftime 1 \
-    "$CLIPS_DIR/clip-%s.mp4"
+    "$CLIPS_DIR/$CAMERA_ID/clip-%s.mp4"
