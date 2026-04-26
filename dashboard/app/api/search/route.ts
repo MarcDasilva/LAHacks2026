@@ -89,10 +89,15 @@ function cosine(a: number[], b: number[]): number {
   return denom === 0 ? 0 : dot / denom;
 }
 
+function normalizeVideoId(id: string): string {
+  return id.replace(/[\/\\]/g, "__");
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const q = url.searchParams.get("q")?.trim();
   const limit = Math.min(20, Math.max(1, Number(url.searchParams.get("limit") ?? 6)));
+  const videoFilter = url.searchParams.get("video")?.trim() || null;
 
   if (!q) {
     return NextResponse.json({ results: [], error: "missing q" }, { status: 400 });
@@ -121,6 +126,26 @@ export async function GET(req: Request) {
     return NextResponse.json({ results: [], error: "index is empty" });
   }
 
+  // Old index entries store the raw cloudinary public_id ("impulse/foo");
+  // newer ones use the manifest-style normalised form ("impulse__foo").
+  // Compare both so a videoId filter works against either.
+  const filteredEntries = videoFilter
+    ? index.entries.filter(
+        (e) =>
+          e.videoId === videoFilter ||
+          normalizeVideoId(e.videoId) === videoFilter
+      )
+    : index.entries;
+
+  if (videoFilter && filteredEntries.length === 0) {
+    return NextResponse.json({
+      query: q,
+      videoFilter,
+      results: [],
+      error: "no indexed segments for this video — run scripts/index_videos.py",
+    });
+  }
+
   let queryVec: number[];
   try {
     queryVec = await embedQuery(q, process.env.OPENAI_API_KEY);
@@ -129,9 +154,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ results: [], error: message }, { status: 502 });
   }
 
-  const ranked = index.entries
+  const ranked = filteredEntries
     .map((entry) => ({
-      videoId: entry.videoId,
+      videoId: normalizeVideoId(entry.videoId),
       videoUrl: entry.videoUrl,
       startSec: entry.startSec,
       endSec: entry.endSec,
@@ -141,5 +166,5 @@ export async function GET(req: Request) {
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 
-  return NextResponse.json({ query: q, results: ranked });
+  return NextResponse.json({ query: q, videoFilter, results: ranked });
 }

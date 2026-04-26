@@ -158,7 +158,9 @@ export async function POST(req: Request) {
   const scriptPath = path.join(repoRoot, "scripts", "process_video.py");
   const logPath = path.join(tmpDir, "process.log");
 
-  const child = spawn(
+  const fs = await import("fs");
+
+  const splatChild = spawn(
     "python3",
     [
       scriptPath,
@@ -177,14 +179,37 @@ export async function POST(req: Request) {
   // Best-effort log piping for debugging; the subprocess survives even
   // if these streams close when the API request finishes.
   try {
-    const fs = await import("fs");
     const out = fs.createWriteStream(logPath, { flags: "a" });
-    child.stdout?.pipe(out);
-    child.stderr?.pipe(out);
+    splatChild.stdout?.pipe(out);
+    splatChild.stderr?.pipe(out);
   } catch {
     /* logging is best-effort */
   }
-  child.unref();
+  splatChild.unref();
+
+  // Kick off semantic indexing in parallel with COLMAP. The indexer only
+  // needs the Cloudinary URL + OpenAI key, so it doesn't fight the splat
+  // pipeline for resources. Targets just this video by public_id.
+  const indexLogPath = path.join(tmpDir, "index.log");
+  const indexerPath = path.join(repoRoot, "scripts", "index_videos.py");
+  const indexChild = spawn(
+    "python3",
+    [indexerPath, "--public-id", cloudinaryPublicId],
+    {
+      cwd: repoRoot,
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: process.env,
+    }
+  );
+  try {
+    const out = fs.createWriteStream(indexLogPath, { flags: "a" });
+    indexChild.stdout?.pipe(out);
+    indexChild.stderr?.pipe(out);
+  } catch {
+    /* logging is best-effort */
+  }
+  indexChild.unref();
 
   return NextResponse.json({
     videoId,
