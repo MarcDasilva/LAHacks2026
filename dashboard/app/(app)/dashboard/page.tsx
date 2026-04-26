@@ -363,12 +363,32 @@ function ModelOutputSection({
   );
 }
 
+type CloudinaryFootage = {
+  id: string;
+  name: string;
+  url: string;
+  bytes: number;
+  durationSec: number | null;
+  createdAt: string | null;
+};
+
+type FeedSource =
+  | { kind: "local"; src: string }
+  | { kind: "cloudinary"; src: string; label: string }
+  | { kind: "stream"; src: string }
+  | { kind: "user"; src: string; name: string };
+
 function LandscapeCameraFeed() {
-  const [src, setSrc] = useState<string | null>(null);
-  const [source, setSource] = useState<"local" | "cloudinary" | "user">("local");
+  const [feed, setFeed] = useState<FeedSource | null>(null);
+  const [library, setLibrary] = useState<CloudinaryFootage[]>([]);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const userObjectUrlRef = useRef<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
+  // Resolve the default feed: prefer the local mp4, fall back to cloudinary
+  // pointer JSON. User picks below override this.
   useEffect(() => {
     let cancelled = false;
     const localUrl = "/clouds/video.mp4";
@@ -376,8 +396,7 @@ function LandscapeCameraFeed() {
       try {
         const head = await fetch(localUrl, { method: "HEAD", cache: "no-store" });
         if (!cancelled && head.ok) {
-          setSrc(localUrl);
-          setSource("local");
+          setFeed({ kind: "local", src: localUrl });
           return;
         }
       } catch {
@@ -388,11 +407,10 @@ function LandscapeCameraFeed() {
         if (!res.ok) throw new Error(`pointer ${res.status}`);
         const payload = (await res.json()) as { url?: string };
         if (!cancelled && payload?.url) {
-          setSrc(payload.url);
-          setSource("cloudinary");
+          setFeed({ kind: "cloudinary", src: payload.url, label: "video.url.json" });
         }
       } catch {
-        /* leave src null — placeholder shown */
+        /* leave feed null — placeholder shown */
       }
     })();
     return () => {
@@ -401,24 +419,78 @@ function LandscapeCameraFeed() {
     };
   }, []);
 
-  const onPick = (e: ChangeEvent<HTMLInputElement>) => {
+  // Load the Cloudinary footage library when the picker opens (lazy so we
+  // don't hit the admin API on every dashboard mount).
+  useEffect(() => {
+    if (!pickerOpen) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/footage", { cache: "no-store" });
+        const payload = (await res.json()) as {
+          videos?: CloudinaryFootage[];
+          error?: string;
+        };
+        if (cancelled) return;
+        setLibrary(payload.videos ?? []);
+        setLibraryError(payload.error ?? null);
+      } catch (e) {
+        if (!cancelled) setLibraryError(e instanceof Error ? e.message : "load failed");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pickerOpen]);
+
+  // Click-outside to dismiss the picker.
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (!containerRef.current) return;
+      if (!containerRef.current.contains(e.target as Node)) setPickerOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [pickerOpen]);
+
+  const onUploadPick = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (userObjectUrlRef.current) URL.revokeObjectURL(userObjectUrlRef.current);
     const url = URL.createObjectURL(file);
     userObjectUrlRef.current = url;
-    setSrc(url);
-    setSource("user");
+    setFeed({ kind: "user", src: url, name: file.name });
+    setPickerOpen(false);
   };
 
-  const sourceLabel = source === "user" ? "uploaded" : source === "cloudinary" ? "cloudinary" : "local";
+  const pickStreamUrl = () => {
+    const value = window.prompt(
+      "Paste a video stream URL (mp4, hls, dash):",
+      "https://"
+    );
+    if (!value) return;
+    setFeed({ kind: "stream", src: value });
+    setPickerOpen(false);
+  };
+
+  const sourceLabel =
+    feed?.kind === "user"
+      ? `uploaded · ${feed.name}`
+      : feed?.kind === "cloudinary"
+        ? `cloudinary · ${feed.label}`
+        : feed?.kind === "stream"
+          ? "stream"
+          : feed?.kind === "local"
+            ? "local"
+            : "idle";
 
   return (
-    <div className="relative aspect-video overflow-hidden border-b border-[var(--primary)]/70 bg-black">
-      {src ? (
+    <div ref={containerRef} className="relative aspect-video overflow-hidden border-b border-[var(--primary)]/70 bg-black">
+      {feed ? (
         <video
-          key={src}
-          src={src}
+          key={feed.src}
+          src={feed.src}
           autoPlay
           loop
           muted
@@ -434,7 +506,7 @@ function LandscapeCameraFeed() {
       )}
 
       <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-2">
-        <span className="rounded-[9px] border border-[var(--primary)]/60 bg-black/45 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white">
+        <span className="truncate max-w-[220px] rounded-[9px] border border-[var(--primary)]/60 bg-black/45 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white">
           {sourceLabel}
         </span>
       </div>
@@ -442,7 +514,7 @@ function LandscapeCameraFeed() {
       <div className="absolute right-3 top-3 z-10">
         <button
           type="button"
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => setPickerOpen((v) => !v)}
           className="rounded-[10px] border border-[var(--primary)]/70 bg-white/85 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] font-display text-[var(--foreground)] shadow-[0_1px_0_rgba(255,255,255,0.4)_inset] transition hover:bg-white"
         >
           Choose footage
@@ -452,8 +524,63 @@ function LandscapeCameraFeed() {
           type="file"
           accept="video/*"
           className="hidden"
-          onChange={onPick}
+          onChange={onUploadPick}
         />
+
+        {pickerOpen ? (
+          <div className="absolute right-0 mt-2 w-[280px] overflow-hidden rounded-[14px] border border-[var(--primary)] bg-white/96 shadow-[0_18px_48px_rgba(15,15,15,0.18)] backdrop-blur">
+            <div className="border-b border-[var(--primary)]/40 px-3 py-2">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
+                Cloudinary library
+              </p>
+            </div>
+            <div className="max-h-[220px] overflow-y-auto">
+              {library.length === 0 ? (
+                <p className="px-3 py-3 text-[12px] font-semibold text-[var(--muted-foreground)]">
+                  {libraryError ?? "loading…"}
+                </p>
+              ) : (
+                library.map((v) => (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => {
+                      setFeed({ kind: "cloudinary", src: v.url, label: v.name });
+                      setPickerOpen(false);
+                    }}
+                    className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition hover:bg-[var(--primary)]/8"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-[12px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
+                        {v.name}
+                      </p>
+                      <p className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
+                        {(v.bytes / 1_048_576).toFixed(1)} MB
+                        {v.durationSec ? ` · ${v.durationSec.toFixed(1)}s` : ""}
+                      </p>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+            <div className="border-t border-[var(--primary)]/40">
+              <button
+                type="button"
+                onClick={pickStreamUrl}
+                className="block w-full px-3 py-2 text-left text-[12px] font-bold tracking-[-0.01em] text-[var(--foreground)] transition hover:bg-[var(--primary)]/8"
+              >
+                Paste stream URL…
+              </button>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="block w-full px-3 py-2 text-left text-[12px] font-bold tracking-[-0.01em] text-[var(--foreground)] transition hover:bg-[var(--primary)]/8"
+              >
+                Upload from device…
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
