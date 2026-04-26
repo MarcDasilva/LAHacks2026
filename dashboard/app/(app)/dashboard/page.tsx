@@ -16,7 +16,7 @@ import { PointCloudViewer } from "@/app/components/ui/PointCloudViewer";
 import { GaussianSplatViewer } from "@/app/components/ui/GaussianSplatViewer";
 import GlassSurface from "@/components/GlassSurface";
 import Grainient from "@/components/Grainient";
-import { Activity, ChevronRight, Search } from "lucide-react";
+import { Activity, ChevronRight, Circle, Search, Square } from "lucide-react";
 
 type RoomSummary = {
   roomId: string;
@@ -112,6 +112,18 @@ type SelectedVideoCtx = {
 };
 
 const SelectedVideoContext = createContext<SelectedVideoCtx | null>(null);
+
+// Carries a stable callback the live camera viewers use to register their
+// underlying MediaStream with the dashboard, so the Record button can spin
+// up a MediaRecorder per active phone without each viewer holding its own
+// recording state.
+type RegisterStream = (roomId: string, stream: MediaStream | null) => void;
+const CameraStreamContext = createContext<RegisterStream | null>(null);
+
+function useRegisterCameraStream(): RegisterStream {
+  const fn = useContext(CameraStreamContext);
+  return fn ?? (() => {});
+}
 
 function useSelectedVideo(): SelectedVideoCtx {
   const ctx = useContext(SelectedVideoContext);
@@ -302,8 +314,129 @@ export default function Dashboard() {
     [selected, manifest, refreshManifest, activeClip]
   );
 
+  // ── Recording (live phone streams → /api/recordings) ────────────────
+  const streamsRef = useRef<Map<string, MediaStream>>(new Map());
+  const recordersRef = useRef<
+    Map<string, { recorder: MediaRecorder; chunks: Blob[]; mime: string }>
+  >(new Map());
+  const isRecordingRef = useRef(false);
+  const [isRecording, setIsRecording] = useState(false);
+
+  const pickMime = useCallback((): string => {
+    if (typeof MediaRecorder === "undefined") return "";
+    const candidates = [
+      "video/webm;codecs=vp9,opus",
+      "video/webm;codecs=vp8,opus",
+      "video/webm",
+      "video/mp4",
+    ];
+    for (const c of candidates) {
+      try {
+        if (MediaRecorder.isTypeSupported(c)) return c;
+      } catch {
+        /* some browsers throw on unknown types */
+      }
+    }
+    return "";
+  }, []);
+
+  const startRecorderFor = useCallback(
+    (roomId: string, stream: MediaStream) => {
+      if (recordersRef.current.has(roomId)) return;
+      const mime = pickMime();
+      let recorder: MediaRecorder;
+      try {
+        recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      } catch {
+        return;
+      }
+      const entry = { recorder, chunks: [] as Blob[], mime: recorder.mimeType || mime || "video/webm" };
+      recorder.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0) entry.chunks.push(ev.data);
+      };
+      recorder.onstop = async () => {
+        recordersRef.current.delete(roomId);
+        if (entry.chunks.length === 0) return;
+        const blob = new Blob(entry.chunks, { type: entry.mime });
+        const form = new FormData();
+        const ext = entry.mime.includes("mp4") ? "mp4" : "webm";
+        form.set("file", blob, `${roomId}.${ext}`);
+        form.set("roomId", roomId);
+        try {
+          await fetch("/api/recordings", { method: "POST", body: form });
+        } catch {
+          /* user can retry by pressing record again */
+        }
+      };
+      recordersRef.current.set(roomId, entry);
+      recorder.start(1000);
+    },
+    [pickMime],
+  );
+
+  const registerStream = useCallback<RegisterStream>(
+    (roomId, stream) => {
+      if (stream) {
+        streamsRef.current.set(roomId, stream);
+        if (isRecordingRef.current) startRecorderFor(roomId, stream);
+      } else {
+        streamsRef.current.delete(roomId);
+        const entry = recordersRef.current.get(roomId);
+        if (entry && entry.recorder.state !== "inactive") {
+          try {
+            entry.recorder.stop();
+          } catch {
+            /* already stopping */
+          }
+        }
+      }
+    },
+    [startRecorderFor],
+  );
+
+  const handleToggleRecording = useCallback(() => {
+    if (isRecordingRef.current) {
+      isRecordingRef.current = false;
+      setIsRecording(false);
+      for (const { recorder } of recordersRef.current.values()) {
+        if (recorder.state !== "inactive") {
+          try {
+            recorder.stop();
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+      return;
+    }
+    if (streamsRef.current.size === 0) return;
+    isRecordingRef.current = true;
+    setIsRecording(true);
+    for (const [roomId, stream] of streamsRef.current.entries()) {
+      startRecorderFor(roomId, stream);
+    }
+  }, [startRecorderFor]);
+
+  useEffect(() => {
+    return () => {
+      isRecordingRef.current = false;
+      for (const { recorder } of recordersRef.current.values()) {
+        if (recorder.state !== "inactive") {
+          try {
+            recorder.stop();
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    };
+  }, []);
+
+  const canRecord = activeRooms.length > 0;
+
   return (
     <SelectedVideoContext.Provider value={selectionCtx}>
+    <CameraStreamContext.Provider value={registerStream}>
     <div className="alerts-page dashboard-page relative h-full w-full overflow-hidden bg-[var(--background)]">
       {bootPhase !== "hidden" && (
         <div
@@ -393,6 +526,9 @@ export default function Dashboard() {
                         onToggleWorld={() => setWorldOpen((value) => !value)}
                         mode={mode}
                         onChangeMode={setMode}
+                        isRecording={isRecording}
+                        onToggleRecording={handleToggleRecording}
+                        canRecord={canRecord}
                       />
                     ) : null
                   ) : (
@@ -411,15 +547,18 @@ export default function Dashboard() {
                   )}
                 </div>
 
-                <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto lg:w-1/2 lg:flex-1">
-                  <SparseSplatPanel onNavigateToFootage={() => setMode("upload")} />
-                </div>
+                {worldOpen ? null : (
+                  <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto lg:w-1/2 lg:flex-1">
+                    <SparseSplatPanel onNavigateToFootage={() => setMode("upload")} />
+                  </div>
+                )}
               </div>
             </section>
           </div>
         </main>
       </div>
     </div>
+    </CameraStreamContext.Provider>
     </SelectedVideoContext.Provider>
   );
 }
@@ -430,16 +569,27 @@ function SelectedCameraPanel({
   onToggleWorld,
   mode,
   onChangeMode,
+  isRecording,
+  onToggleRecording,
+  canRecord,
 }: {
   room: RoomSummary;
   worldOpen: boolean;
   onToggleWorld: () => void;
   mode: "stream" | "upload";
   onChangeMode: (m: "stream" | "upload") => void;
+  isRecording: boolean;
+  onToggleRecording: () => void;
+  canRecord: boolean;
 }) {
   const yoloPayload = room.modelOutputs?.yolo ?? null;
   const yamnetPayload = room.modelOutputs?.yamnet ?? null;
   const sttPayload = room.modelOutputs?.stt ?? null;
+  const registerStream = useRegisterCameraStream();
+  const onStream = useCallback(
+    (stream: MediaStream | null) => registerStream(room.roomId, stream),
+    [registerStream, room.roomId],
+  );
 
   return (
     <GlassSurface
@@ -463,6 +613,7 @@ function SelectedCameraPanel({
           </div>
           <div className="flex items-center gap-2">
             <StatusPill label="live" />
+            <RecordButton active={isRecording} disabled={!canRecord} onClick={onToggleRecording} />
             <ModeToggle mode={mode} onChange={onChangeMode} />
             <WorldButton active={worldOpen} onClick={onToggleWorld} />
           </div>
@@ -471,7 +622,7 @@ function SelectedCameraPanel({
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           <div className="bg-black/8 p-3 transition-[padding] duration-300">
             <div className="relative aspect-video overflow-hidden rounded-[14px] border border-[var(--border)]/55 bg-black/12 shadow-[0_1px_0_rgba(255,255,255,0.16)_inset] transition-[height] duration-300">
-              <CameraFrameViewer roomId={room.roomId} />
+              <CameraFrameViewer roomId={room.roomId} onStream={onStream} />
             </div>
           </div>
 
@@ -1332,6 +1483,11 @@ function CameraPreviewThumb({
   onSelect: () => void;
   stacked?: boolean;
 }) {
+  const registerStream = useRegisterCameraStream();
+  const onStream = useCallback(
+    (stream: MediaStream | null) => registerStream(room.roomId, stream),
+    [registerStream, room.roomId],
+  );
   return (
     <GlassSurface
       width="100%"
@@ -1350,7 +1506,7 @@ function CameraPreviewThumb({
         className="w-full text-left"
       >
         <div className="relative aspect-video overflow-hidden rounded-[15px] bg-black/12">
-          <CameraFrameViewer roomId={room.roomId} />
+          <CameraFrameViewer roomId={room.roomId} onStream={onStream} />
           <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-[linear-gradient(180deg,transparent,rgba(0,0,0,0.58))] px-3 py-2.5">
             <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-white/72">
               {room.roomId}
@@ -1386,6 +1542,47 @@ function WorldButton({ active, onClick }: { active: boolean; onClick: () => void
         }`}
       >
         World
+      </button>
+    </GlassSurface>
+  );
+}
+
+function RecordButton({
+  active,
+  disabled,
+  onClick,
+}: {
+  active: boolean;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <GlassSurface
+      width="auto"
+      height={34}
+      borderRadius={10}
+      saturation={1.12}
+      backgroundOpacity={0.08}
+      blur={4}
+      className="alerts-glass alerts-glass-press"
+    >
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        title={disabled ? "Connect a phone to record" : active ? "Stop recording" : "Start recording"}
+        className={`flex h-full w-full items-center gap-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.14em] transition disabled:cursor-not-allowed disabled:opacity-45 ${
+          active
+            ? "text-[oklch(0.55_0.18_25)]"
+            : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+        }`}
+      >
+        {active ? (
+          <Square size={11} strokeWidth={2} fill="currentColor" />
+        ) : (
+          <Circle size={11} strokeWidth={2} fill="currentColor" className={disabled ? "" : "text-[oklch(0.55_0.18_25)]"} />
+        )}
+        {active ? "Stop" : "Record"}
       </button>
     </GlassSurface>
   );

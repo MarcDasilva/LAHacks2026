@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 type CameraFrameViewerProps = {
   roomId?: string;
   serverUrl?: string;
+  onStream?: (stream: MediaStream | null) => void;
 };
 
 type ConnectionState = "connecting" | "connected" | "disconnected";
@@ -29,7 +30,12 @@ function createPeerConnection() {
 export default function CameraFrameViewer({
   roomId = "main-camera",
   serverUrl,
+  onStream,
 }: CameraFrameViewerProps) {
+  const onStreamRef = useRef<typeof onStream>(onStream);
+  useEffect(() => {
+    onStreamRef.current = onStream;
+  }, [onStream]);
   const [displayMode, setDisplayMode] = useState<"none" | "webrtc" | "jpeg">("none");
   const [lastFrameAtLabel, setLastFrameAtLabel] = useState<string | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
@@ -69,6 +75,7 @@ export default function CameraFrameViewer({
       activePeerSenderIdRef.current = null;
       pendingIceCandidatesRef.current = [];
       remoteStreamRef.current = null;
+      onStreamRef.current?.(null);
       setDisplayMode("none");
       displayModeRef.current = "none";
       hasStreamRef.current = false;
@@ -105,6 +112,7 @@ export default function CameraFrameViewer({
           return remoteStreamRef.current;
         })();
         videoRef.current.srcObject = stream;
+        onStreamRef.current?.(stream);
         videoRef.current.play().catch(() => {
           // Autoplay can fail in some browser policies; keep stream attached.
         });
@@ -277,6 +285,7 @@ export default function CameraFrameViewer({
       activePeerSenderIdRef.current = null;
       pendingIceCandidatesRef.current = [];
       remoteStreamRef.current = null;
+      onStreamRef.current?.(null);
       if (previousFrameUrlRef.current) {
         URL.revokeObjectURL(previousFrameUrlRef.current);
         previousFrameUrlRef.current = null;
