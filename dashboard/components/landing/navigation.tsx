@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Menu, X } from "lucide-react";
 
+const DEMO_URL = "https://devpost.com/software/erewhon";
+
 export function Navigation() {
   const router = useRouter();
   const [isScrolled, setIsScrolled] = useState(false);
@@ -55,7 +57,9 @@ export function Navigation() {
 
           <div className="hidden md:flex items-center gap-4">
             <a
-              href="#"
+              href={DEMO_URL}
+              target="_blank"
+              rel="noreferrer"
               className={`text-foreground/70 hover:text-foreground transition-all duration-500 ${
                 isScrolled ? "text-xs" : "text-sm"
               }`}
@@ -109,7 +113,10 @@ export function Navigation() {
             <Button
               variant="outline"
               className="flex-1 rounded-full h-14 text-base"
-              onClick={() => setIsMobileMenuOpen(false)}
+              onClick={() => {
+                setIsMobileMenuOpen(false);
+                window.open(DEMO_URL, "_blank", "noopener,noreferrer");
+              }}
             >
               Watch demo
             </Button>
