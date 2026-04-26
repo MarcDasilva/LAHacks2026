@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { AnimatedSphere } from "./animated-sphere";
 
-const words = ["save", "inform", "prevent"];
+const words = ["coordinate", "respond", "improve"];
 
 export function HeroSection() {
   const [isVisible, setIsVisible] = useState(false);
@@ -62,7 +62,7 @@ export function HeroSection() {
         >
           <span className="inline-flex items-center gap-3 text-sm font-display text-muted-foreground">
             <span className="w-8 h-px bg-foreground/30" />
-            The platform for modern teams
+            The platform for modern paramedics and first responder teams
           </span>
         </div>
 
@@ -108,8 +108,9 @@ export function HeroSection() {
               isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
             }`}
           >
-            Your toolkit to stop configuring and start innovating.
-            Securely build, deploy, and scale the best experiences.
+            Your toolkit to stop battling disconnected systems and start delivering
+            faster, smarter emergency response. Securely collaborate, coordinate,
+            and improve field operations when every second matters.
           </p>
 
           <div />
@@ -127,10 +128,26 @@ export function HeroSection() {
           {[...Array(2)].map((_, i) => (
             <div key={i} className="flex gap-16">
               {[
-                { value: "20 days", label: "saved on builds", company: "NETFLIX" },
-                { value: "98%", label: "faster deployment", company: "STRIPE" },
-                { value: "300%", label: "throughput increase", company: "LINEAR" },
-                { value: "6x", label: "faster to ship", company: "NOTION" },
+                {
+                  value: "20%",
+                  label: "faster dispatch coordination",
+                  company: "OPERATIONAL SPEED",
+                },
+                {
+                  value: "40%",
+                  label: "fewer handoff delays",
+                  company: "TEAMWORK",
+                },
+                {
+                  value: "6x",
+                  label: "faster protocol rollout",
+                  company: "READINESS",
+                },
+                {
+                  value: "70%",
+                  label: "less reporting time",
+                  company: "DOCUMENTATION",
+                },
               ].map((stat) => (
                 <div key={`${stat.company}-${i}`} className="flex items-baseline gap-4">
                   <span className="text-4xl lg:text-5xl font-display">{stat.value}</span>
