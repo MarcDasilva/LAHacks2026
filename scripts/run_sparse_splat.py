@@ -27,6 +27,7 @@ DEFAULT_VIDEO = REPO_ROOT / "assets/output/input/IMG_0718.mp4"
 DEFAULT_WORKSPACE = REPO_ROOT / "assets/output"
 DEFAULT_LBMP_OUT = REPO_ROOT / "dashboard/public/clouds/sparse.lbmp"
 DEFAULT_URL_JSON = REPO_ROOT / "dashboard/public/clouds/sparse.url.json"
+DEFAULT_VIDEO_URL_JSON = REPO_ROOT / "dashboard/public/clouds/video.url.json"
 DEFAULT_ENV_FILE = REPO_ROOT / ".env"
 
 LBMP_MAGIC = 0x4C424D50
@@ -119,24 +120,29 @@ def load_dotenv(path: Path) -> None:
         os.environ.setdefault(key, value)
 
 
-def upload_to_cloudinary(lbmp_path: Path, public_id: str) -> str | None:
-    """Upload the LBMP as a raw asset. Returns secure_url or None on failure."""
+def _import_cloudinary():
     try:
         import cloudinary  # type: ignore
         import cloudinary.uploader  # type: ignore
     except ImportError:
         print("cloudinary not installed — skipping upload (pip install cloudinary)", file=sys.stderr)
         return None
-
     if not os.environ.get("CLOUDINARY_URL"):
         print("CLOUDINARY_URL not set — skipping upload", file=sys.stderr)
         return None
-
     cloudinary.config()  # auto-reads CLOUDINARY_URL
-    print(f"\nuploading {lbmp_path.name} to cloudinary as raw/{public_id} ...")
-    result = cloudinary.uploader.upload(
-        str(lbmp_path),
-        resource_type="raw",
+    return cloudinary
+
+
+def upload_to_cloudinary(path: Path, public_id: str, resource_type: str) -> str | None:
+    """Upload a file as the given resource_type (raw|video|image). Returns secure_url or None."""
+    cloudinary = _import_cloudinary()
+    if cloudinary is None:
+        return None
+    print(f"\nuploading {path.name} to cloudinary as {resource_type}/{public_id} ...")
+    result = cloudinary.uploader.upload_large(
+        str(path),
+        resource_type=resource_type,
         public_id=public_id,
         overwrite=True,
         invalidate=True,
@@ -162,8 +168,13 @@ def main() -> int:
                     help="where to write the cloudinary URL JSON the dashboard reads")
     ap.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
     ap.add_argument("--cloudinary-public-id", default="impulse/sparse_splat",
-                    help="cloudinary public_id for the raw upload")
-    ap.add_argument("--skip-upload", action="store_true", help="don't push to cloudinary")
+                    help="cloudinary public_id for the LBMP raw upload")
+    ap.add_argument("--video-public-id", default="impulse/sparse_source",
+                    help="cloudinary public_id for the source video upload")
+    ap.add_argument("--video-url-json", type=Path, default=DEFAULT_VIDEO_URL_JSON,
+                    help="where to write the cloudinary video URL pointer JSON")
+    ap.add_argument("--skip-upload", action="store_true", help="don't push the LBMP to cloudinary")
+    ap.add_argument("--skip-video-upload", action="store_true", help="don't push the source video to cloudinary")
     ap.add_argument("--fps", type=float, default=2.0, help="frames per second to sample from video")
     ap.add_argument("--skip-extract", action="store_true", help="reuse existing frames in <workspace>/images/")
     ap.add_argument("--skip-colmap", action="store_true", help="reuse existing sparse/*/points3D.bin")
@@ -206,7 +217,7 @@ def main() -> int:
     print(f"wrote LBMP → {args.out} ({args.out.stat().st_size:,} bytes)")
 
     if not args.skip_upload:
-        secure_url = upload_to_cloudinary(args.out, args.cloudinary_public_id)
+        secure_url = upload_to_cloudinary(args.out, args.cloudinary_public_id, "raw")
         if secure_url:
             args.url_json.parent.mkdir(parents=True, exist_ok=True)
             args.url_json.write_text(json.dumps({"url": secure_url}, indent=2) + "\n")
@@ -214,6 +225,16 @@ def main() -> int:
             print(f"wrote URL pointer → {args.url_json}")
         else:
             print("dashboard will fall back to the local /clouds/sparse.lbmp")
+
+    if not args.skip_video_upload and args.video.exists():
+        video_url = upload_to_cloudinary(args.video, args.video_public_id, "video")
+        if video_url:
+            args.video_url_json.parent.mkdir(parents=True, exist_ok=True)
+            args.video_url_json.write_text(
+                json.dumps({"url": video_url, "localPath": str(args.video.relative_to(REPO_ROOT))}, indent=2) + "\n"
+            )
+            print(f"uploaded video → {video_url}")
+            print(f"wrote video URL pointer → {args.video_url_json}")
 
     return 0
 
