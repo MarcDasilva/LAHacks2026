@@ -15,13 +15,15 @@ export default function Navbar() {
   return (
     <>
       {/* Top bar */}
-      <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 h-[57px] bg-[var(--background)]/80 backdrop-blur-xl border-b border-[var(--border)]">
-        <Link href="/" className="text-[var(--foreground)] font-bold text-2xl tracking-[-0.01em] uppercase hover:opacity-80 transition-opacity">
-          Vigil
+      <nav className="fixed top-0 left-0 right-0 z-50 flex items-center px-6 h-[57px] bg-[var(--background)]/80 backdrop-blur-xl border-b border-[var(--border)]">
+        <Link href="/" className="flex items-center gap-2 group hover:opacity-80 transition-opacity">
+          <span className="font-display tracking-tight text-2xl">
+            IMPULSE
+          </span>
+          <span className="text-[var(--muted-foreground)] font-display text-xs mt-1">
+            OS
+          </span>
         </Link>
-        <button className="w-10 h-10 rounded-[8px] bg-[var(--muted)] flex items-center justify-center text-sm font-semibold text-[var(--foreground)] hover:bg-[var(--border)] transition-colors">
-          JD
-        </button>
       </nav>
 
       {/* Left sidebar */}
@@ -31,7 +33,7 @@ export default function Navbar() {
             key={label}
             href={href}
             title={label}
-            className="flex items-center justify-center w-10 h-10 rounded-[8px] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+            className="flex items-center justify-center w-10 h-10 text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
           >
             <Icon size={17} strokeWidth={1.75} />
           </a>

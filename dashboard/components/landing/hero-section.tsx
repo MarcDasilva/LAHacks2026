@@ -1,0 +1,169 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { AnimatedSphere } from "./animated-sphere";
+
+const words = ["coordinate", "respond", "improve"];
+
+export function HeroSection() {
+  const [isVisible, setIsVisible] = useState(false);
+  const [wordIndex, setWordIndex] = useState(0);
+
+  useEffect(() => {
+    setIsVisible(true);
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setWordIndex((prev) => (prev + 1) % words.length);
+    }, 2500);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <section className="relative min-h-screen flex flex-col justify-center overflow-hidden">
+      {/* Animated sphere background */}
+      <div className="absolute right-0 top-1/2 -translate-y-1/2 w-[600px] h-[600px] lg:w-[800px] lg:h-[800px] opacity-80 pointer-events-none">
+        <AnimatedSphere />
+      </div>
+
+      {/* Subtle grid lines */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-30">
+        {[...Array(8)].map((_, i) => (
+          <div
+            key={`h-${i}`}
+            className="absolute h-px bg-foreground/10"
+            style={{
+              top: `${12.5 * (i + 1)}%`,
+              left: 0,
+              right: 0,
+            }}
+          />
+        ))}
+        {[...Array(12)].map((_, i) => (
+          <div
+            key={`v-${i}`}
+            className="absolute w-px bg-foreground/10"
+            style={{
+              left: `${8.33 * (i + 1)}%`,
+              top: 0,
+              bottom: 0,
+            }}
+          />
+        ))}
+      </div>
+
+      <div className="relative z-10 max-w-[1400px] mx-auto px-6 lg:px-12 py-32 lg:py-40">
+        {/* Eyebrow */}
+        <div
+          className={`mb-8 transition-all duration-700 ${
+            isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
+          }`}
+        >
+          <span className="inline-flex items-center gap-3 text-sm font-display text-muted-foreground">
+            <span className="w-8 h-px bg-foreground/30" />
+            The platform for modern paramedics and first responder teams
+          </span>
+        </div>
+
+        {/* Main headline */}
+        <div className="mb-12">
+          <h1
+            className={`text-[clamp(3rem,12vw,10rem)] text-black font-display leading-[0.9] tracking-tight transition-all duration-1000 ${
+              isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
+            }`}
+          >
+            <span className="block">
+              EMT <span className="font-bold">OS</span>
+            </span>
+            <span className="block">
+              to{" "}
+              <span className="relative inline-block">
+                <span
+                  key={wordIndex}
+                  className="inline-flex"
+                >
+                  {words[wordIndex].split("").map((char, i) => (
+                    <span
+                      key={`${wordIndex}-${i}`}
+                      className="inline-block animate-char-in"
+                      style={{
+                        animationDelay: `${i * 50}ms`,
+                      }}
+                    >
+                      {char}
+                    </span>
+                  ))}
+                </span>
+                <span className="absolute -bottom-2 left-0 right-0 h-3 bg-white/35" />
+              </span>
+            </span>
+          </h1>
+        </div>
+
+        {/* Description */}
+        <div className="grid lg:grid-cols-2 gap-12 lg:gap-24 items-end">
+          <p
+            className={`text-xl lg:text-2xl text-muted-foreground leading-relaxed max-w-xl transition-all duration-700 delay-200 ${
+              isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
+            }`}
+          >
+            Your toolkit to stop battling disconnected systems and start delivering
+            faster, smarter emergency response. Securely collaborate, coordinate,
+            and improve field operations when every second matters.
+          </p>
+
+          <div />
+        </div>
+
+      </div>
+
+      {/* Stats marquee - full width outside container */}
+      <div
+        className={`absolute bottom-24 left-0 right-0 transition-all duration-700 delay-500 ${
+          isVisible ? "opacity-100" : "opacity-0"
+        }`}
+      >
+        <div className="flex gap-16 marquee whitespace-nowrap">
+          {[...Array(2)].map((_, i) => (
+            <div key={i} className="flex gap-16">
+              {[
+                {
+                  value: "20%",
+                  label: "faster dispatch coordination",
+                  company: "OPERATIONAL SPEED",
+                },
+                {
+                  value: "40%",
+                  label: "fewer handoff delays",
+                  company: "TEAMWORK",
+                },
+                {
+                  value: "6x",
+                  label: "faster protocol rollout",
+                  company: "READINESS",
+                },
+                {
+                  value: "70%",
+                  label: "less reporting time",
+                  company: "DOCUMENTATION",
+                },
+              ].map((stat) => (
+                <div key={`${stat.company}-${i}`} className="flex items-baseline gap-4">
+                  <span className="text-4xl lg:text-5xl font-display">{stat.value}</span>
+                  <span className="text-sm text-muted-foreground">
+                    {stat.label}
+                    <span className="block font-display text-xs mt-1">{stat.company}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Scroll indicator */}
+
+    </section>
+  );
+}
