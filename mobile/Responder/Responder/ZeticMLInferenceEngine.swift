@@ -108,6 +108,7 @@ final class ZeticMLInferenceEngine: MLInferenceEngine {
             }
 
             let detections = parseYOLODetections(from: outputs, sourcePixelBuffer: pixelBuffer)
+            publishDetectionOverlay(detections)
             logDetectionJSON(chunkID: chunk.chunkID, detections: detections)
 
             let text = detections.isEmpty
@@ -441,6 +442,22 @@ final class ZeticMLInferenceEngine: MLInferenceEngine {
             return cocoLabels[classID]
         }
         return "class_\(classID)"
+    }
+
+    private func publishDetectionOverlay(_ detections: [YOLODetection]) {
+        let boxes = detections.map { detection in
+            DetectedBoundingBox(
+                label: label(for: detection.classID),
+                confidence: detection.confidence,
+                rect: CGRect(
+                    x: CGFloat(detection.x1),
+                    y: CGFloat(detection.y1),
+                    width: CGFloat(max(0, detection.x2 - detection.x1)),
+                    height: CGFloat(max(0, detection.y2 - detection.y1))
+                )
+            )
+        }
+        DetectionOverlayStore.shared.update(boxes)
     }
 
     private func logDetectionJSON(chunkID: String, detections: [YOLODetection]) {

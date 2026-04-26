@@ -60,6 +60,7 @@ final class CameraViewModel: NSObject, ObservableObject {
                     self?.latestDetections = text.isEmpty ? "[no detections]" : text
                     self?.yoloError = nil
                     self?.lastInferenceError = self?.sttError
+                    self?.frameStreamClient.sendModelOutput(kind: "yolo", payload: payload)
                 }
             },
             onError: { [weak self] message in
@@ -119,6 +120,7 @@ final class CameraViewModel: NSObject, ObservableObject {
                     self?.latestYamnetOutput = text.isEmpty ? "[empty yamnet output]" : text
                     self?.yamnetError = nil
                     self?.lastInferenceError = self?.sttError ?? self?.yoloError
+                    self?.frameStreamClient.sendModelOutput(kind: "yamnet", payload: payload)
                 }
             },
             onError: { [weak self] message in
@@ -180,6 +182,7 @@ final class CameraViewModel: NSObject, ObservableObject {
     func stopCamera() {
         captureService.stopRunning()
         frameStreamClient.stop()
+        DetectionOverlayStore.shared.clear()
     }
 
     func setSTTEnabled(_ enabled: Bool) {
@@ -215,6 +218,7 @@ final class CameraViewModel: NSObject, ObservableObject {
         yoloPipeline.setPaused(yoloOnHold)
         if yoloOnHold {
             latestDetections = "YOLO is currently on hold."
+            DetectionOverlayStore.shared.clear()
         } else if latestDetections == "YOLO is currently on hold." {
             latestDetections = "Waiting for detections..."
         }
@@ -257,18 +261,19 @@ final class CameraViewModel: NSObject, ObservableObject {
 
 extension CameraViewModel: CameraCaptureServiceDelegate {
     nonisolated func cameraCaptureService(_ service: CameraCaptureService, didOutputVideo sampleBuffer: CMSampleBuffer) {
-        frameStreamClient.sendVideoSampleBuffer(sampleBuffer)
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.capturedFrameCount += 1
             self.lastFrameTimestamp = Date()
-            if self.yoloOnHold { return }
-            self.yoloPipeline.ingestFrame(
-                capturedAt: self.lastFrameTimestamp ?? Date(),
-                pixelBuffer: pixelBuffer,
-                audioSamples: []
-            )
+            if !self.yoloOnHold {
+                self.yoloPipeline.ingestFrame(
+                    capturedAt: self.lastFrameTimestamp ?? Date(),
+                    pixelBuffer: pixelBuffer,
+                    audioSamples: []
+                )
+            }
+            self.frameStreamClient.sendVideoSampleBuffer(sampleBuffer)
         }
     }
 
