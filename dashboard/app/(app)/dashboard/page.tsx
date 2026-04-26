@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import CameraFrameViewer from "@/app/components/CameraFrameViewer";
+import { PointCloudViewer } from "@/app/components/ui/PointCloudViewer";
 import { Activity, ChevronRight } from "lucide-react";
 
 type RoomSummary = {
@@ -196,6 +197,11 @@ export default function Dashboard() {
                     <SelectedCameraPanel room={selectedRoom} />
                   ) : null}
 
+                  <SparseSplatPanel
+                    pointerUrl="/clouds/sparse.url.json"
+                    fallbackUrl="/clouds/sparse.lbmp"
+                  />
+
                   {previewRooms.length > 0 ? (
                     <div className="flex min-h-0 w-full shrink-0 gap-3 overflow-x-auto lg:flex-1 lg:flex-col lg:overflow-y-auto lg:overflow-x-hidden">
                       {previewRooms.map((room) => (
@@ -356,6 +362,73 @@ function ModelOutputSection({
         )}
       </div>
     </section>
+  );
+}
+
+function SparseSplatPanel({
+  pointerUrl,
+  fallbackUrl,
+}: {
+  pointerUrl: string;
+  fallbackUrl: string;
+}) {
+  const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
+  const [source, setSource] = useState<"cloudinary" | "local">("local");
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(pointerUrl, { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((payload: { url?: string } | null) => {
+        if (cancelled) return;
+        if (payload?.url) {
+          setResolvedUrl(payload.url);
+          setSource("cloudinary");
+        } else {
+          setResolvedUrl(fallbackUrl);
+          setSource("local");
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setResolvedUrl(fallbackUrl);
+        setSource("local");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pointerUrl, fallbackUrl]);
+
+  return (
+    <div className="min-h-[min(76vh,760px)] min-w-0 overflow-hidden rounded-[16px] border border-[var(--foreground)]/28 bg-white/22 shadow-[0_1px_0_rgba(255,255,255,0.22)_inset,0_18px_48px_rgba(15,15,15,0.08)] transition-[width,transform,box-shadow] duration-300 ease-out lg:w-[min(34vw,520px)] lg:min-w-[min(34vw,520px)]">
+      <div className="flex items-center justify-between border-b border-[var(--border)]/70 px-3 py-2.5">
+        <div className="min-w-0">
+          <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
+            sparse_splat
+          </p>
+          <p className="mt-1 truncate text-[13px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
+            COLMAP reconstruction
+          </p>
+        </div>
+        <StatusPill label={source === "cloudinary" ? "cloudinary" : "local"} />
+      </div>
+
+      <div className="bg-black/8 p-3 transition-[padding] duration-300">
+        <div className="relative aspect-video overflow-hidden rounded-[14px] border border-[var(--border)]/55 bg-black/12 shadow-[0_1px_0_rgba(255,255,255,0.16)_inset] transition-[height] duration-300">
+          {resolvedUrl ? (
+            <PointCloudViewer url={resolvedUrl} pointSizeFactor={0.006} />
+          ) : null}
+        </div>
+      </div>
+
+      <div className="border-t border-[var(--border)]/70 px-3 py-2.5">
+        <div className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
+          <span>colmap · sparse</span>
+          <span className="text-[var(--muted-foreground)]/55">/</span>
+          <span className="truncate">{source === "cloudinary" ? "served from cdn" : "served locally"}</span>
+        </div>
+      </div>
+    </div>
   );
 }
 
