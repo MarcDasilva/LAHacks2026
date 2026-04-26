@@ -24,6 +24,10 @@ type IndexFile = {
   entries: IndexEntry[];
 };
 
+type ManifestFile = {
+  videos?: Record<string, { videoUrl?: string; videoLocalUrl?: string }>;
+};
+
 function ensureOpenAIEnv() {
   if (process.env.OPENAI_API_KEY) return;
 
@@ -61,6 +65,16 @@ async function loadIndex(): Promise<IndexFile> {
   const indexPath = path.join(process.cwd(), "public", "clouds", "search_index.json");
   const buf = await readFileAsync(indexPath, "utf8");
   return JSON.parse(buf) as IndexFile;
+}
+
+async function loadManifest(): Promise<ManifestFile | null> {
+  try {
+    const manifestPath = path.join(process.cwd(), "public", "clouds", "splats", "manifest.json");
+    const buf = await readFileAsync(manifestPath, "utf8");
+    return JSON.parse(buf) as ManifestFile;
+  } catch {
+    return null;
+  }
 }
 
 async function embedQuery(query: string, apiKey: string): Promise<number[]> {
@@ -133,6 +147,7 @@ export async function GET(req: Request) {
   if (!index.entries.length) {
     return NextResponse.json({ results: [], error: "index is empty" });
   }
+  const manifest = await loadManifest();
 
   // Old index entries store the raw cloudinary public_id ("impulse/foo");
   // newer ones use the manifest-style normalised form ("impulse__foo").
@@ -150,7 +165,7 @@ export async function GET(req: Request) {
       query: q,
       videoFilter,
       results: [],
-      error: "no indexed segments for this video — run scripts/index_videos.py",
+      error: "No indexed segments for this video yet",
     });
   }
 
@@ -165,7 +180,10 @@ export async function GET(req: Request) {
   const ranked = filteredEntries
     .map((entry) => ({
       videoId: normalizeVideoId(entry.videoId),
-      videoUrl: entry.videoUrl,
+      videoUrl:
+        manifest?.videos?.[normalizeVideoId(entry.videoId)]?.videoLocalUrl ??
+        manifest?.videos?.[normalizeVideoId(entry.videoId)]?.videoUrl ??
+        entry.videoUrl,
       startSec: entry.startSec,
       endSec: entry.endSec,
       caption: entry.caption,

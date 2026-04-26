@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { spawn } from "child_process";
-import { mkdir, writeFile, readFile, readFileSync } from "fs";
+import { mkdir, rename, unlink, writeFile, readFile, readFileSync } from "fs";
 import { promisify } from "util";
 import path from "path";
 import os from "os";
@@ -14,6 +14,8 @@ export const maxDuration = 300;
 const writeFileAsync = promisify(writeFile);
 const mkdirAsync = promisify(mkdir);
 const readFileAsyncRaw = promisify(readFile);
+const renameAsync = promisify(rename);
+const unlinkAsync = promisify(unlink);
 
 let envLoaded = false;
 function ensureEnv() {
@@ -66,17 +68,20 @@ type ManifestRecord = {
   // (videoUrl) is the fallback if the file goes missing.
   videoLocalUrl?: string;
   videoLocalPath?: string;
+  videoOriginalLocalUrl?: string;
+  videoOriginalLocalPath?: string;
   status: "ready" | "processing" | "failed";
   label?: string;
   lbmpPath?: string;
   pathPath?: string;
   points?: number;
   error?: string;
-  // Gaussian splat (Modal pipeline) — fills in once train_splat finishes.
   splatStatus?: "pending" | "training" | "ready" | "failed";
   splatJobId?: string;
   splatPath?: string;
   splatError?: string;
+  indexStatus?: "pending" | "ready" | "failed";
+  indexError?: string;
 };
 
 type Manifest = { version: number; videos: Record<string, ManifestRecord> };
@@ -93,6 +98,57 @@ async function readManifest(manifestPath: string): Promise<Manifest> {
 async function writeManifest(manifestPath: string, manifest: Manifest): Promise<void> {
   await mkdirAsync(path.dirname(manifestPath), { recursive: true });
   await writeFileAsync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+}
+
+function previewNameFor(fileName: string): string {
+  const ext = path.extname(fileName);
+  const stem = ext ? fileName.slice(0, -ext.length) : fileName;
+  return `${stem}.preview.mp4`;
+}
+
+async function createBrowserPreview(inputPath: string, outputPath: string): Promise<void> {
+  const tmpPath = `${outputPath}.tmp`;
+  await unlinkAsync(tmpPath).catch(() => undefined);
+
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(
+      "ffmpeg",
+      [
+        "-hide_banner",
+        "-y",
+        "-i", inputPath,
+        "-vf", "fps=30,scale='if(gt(iw,ih),min(1280,iw),-2)':'if(gt(iw,ih),-2,min(1280,ih))',format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv",
+        "-c:v", "libx264",
+        "-profile:v", "high",
+        "-level", "4.2",
+        "-preset", "veryfast",
+        "-crf", "22",
+        "-tag:v", "avc1",
+        "-movflags", "+faststart",
+        "-color_primaries", "bt709",
+        "-color_trc", "bt709",
+        "-colorspace", "bt709",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-f", "mp4",
+        tmpPath,
+      ],
+      { stdio: ["ignore", "ignore", "pipe"] }
+    );
+
+    let stderr = "";
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+      if (stderr.length > 4000) stderr = stderr.slice(-4000);
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(stderr.trim() || `ffmpeg exited ${code}`));
+    });
+  });
+
+  await renameAsync(tmpPath, outputPath);
 }
 
 export async function POST(req: Request) {
@@ -118,13 +174,25 @@ export async function POST(req: Request) {
   const persistedPath = path.join(inputDir, persistedName);
   await writeFileAsync(persistedPath, buffer);
 
-  const videoLocalUrl = `/api/local-video/${encodeURIComponent(persistedName)}`;
+  const videoOriginalLocalUrl = `/api/local-video/${encodeURIComponent(persistedName)}`;
+  const previewName = previewNameFor(persistedName);
+  const previewPath = path.join(inputDir, previewName);
+  let videoLocalUrl = videoOriginalLocalUrl;
+  let videoLocalPath = persistedPath;
+  try {
+    await createBrowserPreview(persistedPath, previewPath);
+    videoLocalUrl = `/api/local-video/${encodeURIComponent(previewName)}`;
+    videoLocalPath = previewPath;
+  } catch (e) {
+    console.warn("[upload-video] browser preview failed:", e instanceof Error ? e.message : e);
+  }
 
-  // Cloudinary upload under impulse/uploads/<stamp>_<basename>. We treat
-  // this as a backup mirror — failures here don't block the flow because
-  // the local file is the primary playback source now.
+  // Cloudinary mirror — Modal needs a publicly fetchable URL to download
+  // the video, but the dashboard always plays from the local file. So we
+  // upload to Cloudinary purely to feed Modal, never as the dashboard's
+  // playback source.
   const cloudinaryPublicId = `impulse/uploads/${stamp}_${baseName}`;
-  let secureUrl = videoLocalUrl;
+  let cloudinaryUrl: string | null = null;
   if (configureCloudinary()) {
     try {
       const result = await cloudinary.uploader.upload(persistedPath, {
@@ -133,12 +201,13 @@ export async function POST(req: Request) {
         overwrite: true,
         invalidate: true,
       });
-      secureUrl = result.secure_url;
+      cloudinaryUrl = result.secure_url;
     } catch (e) {
-      // Non-fatal: keep the local copy as the only source of truth.
       console.warn("[upload-video] cloudinary mirror failed:", e instanceof Error ? e.message : e);
     }
   }
+  // Dashboard playback always uses the local URL.
+  const secureUrl = videoLocalUrl;
 
   const videoId = publicIdToVideoId(cloudinaryPublicId);
   const label = baseName;
@@ -157,51 +226,58 @@ export async function POST(req: Request) {
     videoId,
     videoUrl: secureUrl,
     videoLocalUrl,
-    videoLocalPath: persistedPath,
+    videoLocalPath,
+    videoOriginalLocalUrl,
+    videoOriginalLocalPath: persistedPath,
     status: "processing",
     label,
     lbmpPath: `/clouds/splats/${videoId}/sparse.lbmp`,
     pathPath: `/clouds/splats/${videoId}/sparse.path.json`,
-    splatStatus: "pending",
+    splatStatus: cloudinaryUrl ? "pending" : undefined,
+    indexStatus: "pending",
   };
   await writeManifest(manifestPath, manifest);
 
   // Kick off Modal 3DGS training in parallel. The web endpoint returns a
-  // call_id we persist so the dashboard's poll route can drain the result
-  // when training finishes (~5–10 min on a warm A100).
-  void (async () => {
-    const base = process.env.MODAL_SPLAT_URL?.replace(/\/$/, "");
-    if (!base) return;
-    try {
-      const res = await fetch(`${base}/spawn`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(process.env.IMPULSE_SPLAT_TOKEN
-            ? { authorization: `Bearer ${process.env.IMPULSE_SPLAT_TOKEN}` }
-            : {}),
-        },
-        body: JSON.stringify({ video_url: secureUrl }),
-      });
-      if (!res.ok) throw new Error(`spawn ${res.status}`);
-      const { call_id } = (await res.json()) as { call_id: string };
-      const m2 = await readManifest(manifestPath);
-      const rec = m2.videos[videoId];
-      if (rec) {
-        rec.splatJobId = call_id;
-        rec.splatStatus = "training";
-        await writeManifest(manifestPath, m2);
+  // call_id we persist so /api/splat-poll can drain the result when
+  // training finishes (~5–10 min on a warm A100). Needs a publicly-
+  // fetchable URL, so this only runs when the Cloudinary mirror succeeded.
+  if (cloudinaryUrl) {
+    const cloudinaryUrlForModal = cloudinaryUrl;
+    void (async () => {
+      const base = process.env.MODAL_SPLAT_URL?.replace(/\/$/, "");
+      if (!base) return;
+      try {
+        const res = await fetch(`${base}/spawn`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(process.env.IMPULSE_SPLAT_TOKEN
+              ? { authorization: `Bearer ${process.env.IMPULSE_SPLAT_TOKEN}` }
+              : {}),
+          },
+          body: JSON.stringify({ video_url: cloudinaryUrlForModal }),
+        });
+        if (!res.ok) throw new Error(`spawn ${res.status}`);
+        const { call_id } = (await res.json()) as { call_id: string };
+        const m2 = await readManifest(manifestPath);
+        const rec = m2.videos[videoId];
+        if (rec) {
+          rec.splatJobId = call_id;
+          rec.splatStatus = "training";
+          await writeManifest(manifestPath, m2);
+        }
+      } catch (e) {
+        const m2 = await readManifest(manifestPath);
+        const rec = m2.videos[videoId];
+        if (rec) {
+          rec.splatStatus = "failed";
+          rec.splatError = e instanceof Error ? e.message : "modal spawn failed";
+          await writeManifest(manifestPath, m2);
+        }
       }
-    } catch (e) {
-      const m2 = await readManifest(manifestPath);
-      const rec = m2.videos[videoId];
-      if (rec) {
-        rec.splatStatus = "failed";
-        rec.splatError = e instanceof Error ? e.message : "modal spawn failed";
-        await writeManifest(manifestPath, m2);
-      }
-    }
-  })();
+    })();
+  }
 
   // Spawn the COLMAP subprocess detached — the API responds immediately,
   // process_video.py keeps running and updates the manifest when done.
@@ -263,12 +339,32 @@ export async function POST(req: Request) {
   } catch {
     /* logging is best-effort */
   }
+  // Surface indexer crashes in the manifest so the UI can show a failed
+  // banner instead of spinning on "indexing…" forever. Success is detected
+  // by /api/splat-poll seeing entries land in search_index.json.
+  indexChild.on("exit", (code) => {
+    if (code === 0) return;
+    void (async () => {
+      try {
+        const m2 = await readManifest(manifestPath);
+        const rec = m2.videos[videoId];
+        if (rec && rec.indexStatus !== "ready") {
+          rec.indexStatus = "failed";
+          rec.indexError = `indexer exited ${code}`;
+          await writeManifest(manifestPath, m2);
+        }
+      } catch {
+        /* manifest write is best-effort */
+      }
+    })();
+  });
   indexChild.unref();
 
   return NextResponse.json({
     videoId,
     videoUrl: secureUrl,
     videoLocalUrl,
+    videoOriginalLocalUrl,
     status: "processing",
     label,
     logPath,
