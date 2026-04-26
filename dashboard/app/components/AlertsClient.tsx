@@ -176,7 +176,7 @@ export default function AlertsClient() {
 
     window.setTimeout(() => {
       mapRef.current?.highlightBuildingAt(alert.coords);
-    }, 700);
+    }, 1000);
   };
 
   return (
@@ -306,7 +306,7 @@ export default function AlertsClient() {
                               : ""
                           } ${isNewCritical ? "border-[oklch(0.78_0.09_15)]/92 bg-[oklch(0.78_0.09_15)]/20" : "border-[var(--border)]/70"}`}
                         >
-                          <button type="button" onClick={() => focusAlert(alert)} className="w-full text-left px-3 py-2.5 hover:brightness-110 transition-all">
+                          <button type="button" onClick={() => focusAlert(alert)} className="w-full text-left px-3 py-2.5 hover:brightness-110 transition-all cursor-pointer">
                             <div className="flex items-start gap-2.5">
                               <span className={`mt-1.5 h-2.5 w-2.5 rounded-full ${sev.dot} ${alert.status === "new" ? "animate-pulse" : ""}`} />
                               <div className="min-w-0 flex-1">

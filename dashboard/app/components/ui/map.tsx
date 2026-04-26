@@ -190,15 +190,24 @@ const MapComponent = forwardRef<MapRef, MapProps>(function MapComponent(
         return;
       }
 
+      let geometry: GeoJSON.Geometry = target.geometry;
+      if (geometry.type === "MultiPolygon") {
+        let bestIdx = 0;
+        let bestDist = Infinity;
+        for (let i = 0; i < geometry.coordinates.length; i++) {
+          const ring = geometry.coordinates[i]?.[0] ?? [];
+          const centroid = getRingCentroid(ring as number[][]);
+          const dx = centroid[0] - center[0];
+          const dy = centroid[1] - center[1];
+          const dist = dx * dx + dy * dy;
+          if (dist < bestDist) { bestDist = dist; bestIdx = i; }
+        }
+        geometry = { type: "Polygon", coordinates: geometry.coordinates[bestIdx] ?? [] };
+      }
+
       source.setData({
         type: "FeatureCollection",
-        features: [
-          {
-            type: "Feature",
-            properties: {},
-            geometry: target.geometry,
-          },
-        ],
+        features: [{ type: "Feature", properties: {}, geometry }],
       });
 
       if (map.getLayer(BUILDING_HIGHLIGHT_FILL_LAYER_ID)) {
