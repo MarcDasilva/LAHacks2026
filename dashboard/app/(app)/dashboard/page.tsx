@@ -205,10 +205,13 @@ export default function Dashboard() {
                   />
                 )}
 
-                <SparseSplatPanel
-                  localUrl="/clouds/sparse.lbmp"
-                  pointerUrl="/clouds/sparse.url.json"
-                />
+                <div className="flex min-w-0 flex-col gap-3 lg:w-[min(34vw,520px)] lg:min-w-[min(34vw,520px)]">
+                  <SparseSplatPanel
+                    localUrl="/clouds/sparse.lbmp"
+                    pointerUrl="/clouds/sparse.url.json"
+                  />
+                  <VideoSearchPanel />
+                </div>
 
                 {previewRooms.length > 0 ? (
                   <div className="flex min-h-0 w-full shrink-0 gap-3 overflow-x-auto lg:flex-1 lg:flex-col lg:overflow-y-auto lg:overflow-x-hidden">
@@ -635,7 +638,7 @@ function SparseSplatPanel({
   }, [localUrl, pointerUrl]);
 
   return (
-    <div className="min-h-[min(76vh,760px)] min-w-0 overflow-hidden rounded-[16px] border border-[var(--primary)] bg-white/22 shadow-[0_1px_0_rgba(255,255,255,0.22)_inset,0_18px_48px_rgba(15,15,15,0.08)] transition-[width,transform,box-shadow] duration-300 ease-out lg:w-[min(34vw,520px)] lg:min-w-[min(34vw,520px)]">
+    <div className="min-h-[min(50vh,520px)] min-w-0 overflow-hidden rounded-[16px] border border-[var(--primary)] bg-white/22 shadow-[0_1px_0_rgba(255,255,255,0.22)_inset,0_18px_48px_rgba(15,15,15,0.08)] transition-[width,transform,box-shadow] duration-300 ease-out">
       <div className="flex items-center justify-between border-b border-[var(--primary)]/70 px-3 py-2.5">
         <div className="min-w-0">
           <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
@@ -668,6 +671,172 @@ function SparseSplatPanel({
           <span className="text-[var(--muted-foreground)]/55">/</span>
           <span className="truncate">{source === "cloudinary" ? "served from cdn" : "served locally"}</span>
         </div>
+      </div>
+    </div>
+  );
+}
+
+type SearchResult = {
+  videoId: string;
+  videoUrl: string;
+  startSec: number;
+  endSec: number;
+  caption: string;
+  score: number;
+};
+
+function VideoSearchPanel() {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [status, setStatus] = useState<"idle" | "searching" | "error" | "empty">("idle");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [active, setActive] = useState<SearchResult | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  const submit = async () => {
+    const q = query.trim();
+    if (!q) return;
+    setStatus("searching");
+    setErrorMsg(null);
+    try {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&limit=6`, {
+        cache: "no-store",
+      });
+      const payload = (await res.json()) as {
+        results?: SearchResult[];
+        error?: string;
+      };
+      if (payload.error) {
+        setStatus("error");
+        setErrorMsg(payload.error);
+        setResults([]);
+        return;
+      }
+      setResults(payload.results ?? []);
+      setActive((payload.results ?? [])[0] ?? null);
+      setStatus((payload.results ?? []).length === 0 ? "empty" : "idle");
+    } catch (e) {
+      setStatus("error");
+      setErrorMsg(e instanceof Error ? e.message : "request failed");
+    }
+  };
+
+  // Loop the active clip's segment via media-fragment seek-back.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || !active) return;
+    const onTime = () => {
+      if (v.currentTime >= active.endSec - 0.05) {
+        v.currentTime = active.startSec;
+        v.play().catch(() => {});
+      }
+    };
+    v.currentTime = active.startSec;
+    v.play().catch(() => {});
+    v.addEventListener("timeupdate", onTime);
+    return () => v.removeEventListener("timeupdate", onTime);
+  }, [active]);
+
+  return (
+    <div className="min-w-0 overflow-hidden rounded-[16px] border border-[var(--primary)] bg-white/22 shadow-[0_1px_0_rgba(255,255,255,0.22)_inset,0_18px_48px_rgba(15,15,15,0.08)]">
+      <div className="flex items-center justify-between border-b border-[var(--primary)]/70 px-3 py-2.5">
+        <div className="min-w-0">
+          <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
+            video_search
+          </p>
+          <p className="mt-1 truncate text-[13px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
+            Natural-language clip retrieval
+          </p>
+        </div>
+        <span className="rounded-[9px] border border-[var(--primary)]/60 bg-white/20 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--foreground)]">
+          gemini
+        </span>
+      </div>
+
+      <div className="flex items-center gap-2 border-b border-[var(--primary)]/40 px-3 py-2.5">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submit();
+          }}
+          placeholder="e.g. someone walking through a doorway"
+          className="min-w-0 flex-1 rounded-[10px] border border-[var(--primary)]/55 bg-white/85 px-3 py-1.5 text-[12px] font-semibold tracking-[-0.01em] text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]/70 focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/35"
+        />
+        <button
+          type="button"
+          onClick={submit}
+          disabled={status === "searching"}
+          className="rounded-[10px] border border-[var(--primary)]/70 bg-[var(--primary)] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] font-display text-[var(--primary-foreground)] shadow-[0_1px_0_rgba(255,255,255,0.18)_inset] transition hover:opacity-90 disabled:opacity-50"
+        >
+          {status === "searching" ? "Searching…" : "Search"}
+        </button>
+      </div>
+
+      {active ? (
+        <div className="bg-black/8 p-3">
+          <div className="relative aspect-video overflow-hidden rounded-[14px] border border-[var(--primary)]/55 bg-black">
+            <video
+              key={`${active.videoId}-${active.startSec}`}
+              ref={videoRef}
+              src={`${active.videoUrl}#t=${active.startSec},${active.endSec}`}
+              autoPlay
+              muted
+              playsInline
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+            <div className="pointer-events-none absolute left-3 top-3 z-10">
+              <span className="rounded-[9px] border border-[var(--primary)]/60 bg-black/55 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white">
+                {active.startSec.toFixed(1)}s – {active.endSec.toFixed(1)}s
+              </span>
+            </div>
+          </div>
+          <p className="mt-2 line-clamp-2 text-[12px] font-semibold tracking-[-0.01em] text-[var(--foreground)]">
+            {active.caption}
+          </p>
+        </div>
+      ) : null}
+
+      <div className="max-h-[260px] overflow-y-auto">
+        {status === "error" ? (
+          <p className="px-3 py-3 text-[12px] font-semibold text-[oklch(0.55_0.18_25)]">
+            {errorMsg ?? "search failed"}
+          </p>
+        ) : status === "empty" ? (
+          <p className="px-3 py-3 text-[12px] font-semibold text-[var(--muted-foreground)]">
+            no matching clips. try a different query or run the indexer.
+          </p>
+        ) : results.length === 0 ? (
+          <p className="px-3 py-3 text-[12px] font-semibold text-[var(--muted-foreground)]">
+            run <span className="font-mono">scripts/index_videos.py</span> to build the index, then describe a moment to find it.
+          </p>
+        ) : (
+          results.map((r, i) => {
+            const selected = active && active.videoId === r.videoId && active.startSec === r.startSec;
+            return (
+              <button
+                key={`${r.videoId}-${r.startSec}-${i}`}
+                type="button"
+                onClick={() => setActive(r)}
+                className={`flex w-full items-start justify-between gap-3 border-b border-[var(--primary)]/15 px-3 py-2 text-left transition ${
+                  selected ? "bg-[var(--primary)]/8" : "hover:bg-[var(--primary)]/6"
+                }`}
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] font-display text-[var(--muted-foreground)]">
+                    {r.videoId.split("/").pop()} · {r.startSec.toFixed(1)}s
+                  </p>
+                  <p className="mt-1 line-clamp-2 text-[12px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
+                    {r.caption}
+                  </p>
+                </div>
+                <span className="shrink-0 rounded-[8px] border border-[var(--primary)]/55 bg-white/20 px-2 py-0.5 text-[10px] font-bold tracking-[-0.01em] text-[var(--foreground)]">
+                  {(r.score * 100).toFixed(0)}
+                </span>
+              </button>
+            );
+          })
+        )}
       </div>
     </div>
   );

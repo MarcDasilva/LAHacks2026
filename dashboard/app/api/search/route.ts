@@ -1,0 +1,146 @@
+import { NextResponse } from "next/server";
+import { readFile, readFileSync } from "fs";
+import { promisify } from "util";
+import path from "path";
+
+export const dynamic = "force-dynamic";
+
+const readFileAsync = promisify(readFile);
+const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
+const EMBED_MODEL = "models/gemini-embedding-001";
+
+type IndexEntry = {
+  videoId: string;
+  videoUrl: string;
+  startSec: number;
+  endSec: number;
+  caption: string;
+  embedding: number[];
+};
+
+type IndexFile = {
+  version: number;
+  model: string;
+  entries: IndexEntry[];
+};
+
+let envLoaded = false;
+function ensureGeminiEnv() {
+  if (envLoaded) return;
+  envLoaded = true;
+  if (process.env.GEMINI_API_KEY) return;
+  try {
+    const envPath = path.join(process.cwd(), "..", ".env");
+    const text = readFileSync(envPath, "utf8");
+    for (const raw of text.split("\n")) {
+      const line = raw.trim();
+      if (!line || line.startsWith("#")) continue;
+      const m = line.match(/^([A-Z0-9_]+)\s*=\s*(.+)$/i);
+      if (!m) continue;
+      const [, key, valueRaw] = m;
+      if (key !== "GEMINI_API_KEY") continue;
+      process.env.GEMINI_API_KEY = valueRaw.replace(/^["']|["']$/g, "");
+      break;
+    }
+  } catch {
+    /* missing — fall through */
+  }
+}
+
+async function loadIndex(): Promise<IndexFile> {
+  // Resolve relative to the dashboard/ project root regardless of where
+  // Next.js was launched from.
+  const indexPath = path.join(process.cwd(), "public", "clouds", "search_index.json");
+  const buf = await readFileAsync(indexPath, "utf8");
+  return JSON.parse(buf) as IndexFile;
+}
+
+async function embedQuery(query: string, apiKey: string): Promise<number[]> {
+  const res = await fetch(
+    `${GEMINI_BASE}/${EMBED_MODEL}:embedContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content: { parts: [{ text: query }] },
+        taskType: "RETRIEVAL_QUERY",
+      }),
+    }
+  );
+  if (!res.ok) {
+    throw new Error(`gemini embed ${res.status}: ${await res.text()}`);
+  }
+  const payload = (await res.json()) as { embedding?: { values?: number[] } };
+  const values = payload.embedding?.values;
+  if (!values?.length) throw new Error("gemini returned empty embedding");
+  return values;
+}
+
+function cosine(a: number[], b: number[]): number {
+  if (a.length !== b.length) return 0;
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  const denom = Math.sqrt(na) * Math.sqrt(nb);
+  return denom === 0 ? 0 : dot / denom;
+}
+
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const q = url.searchParams.get("q")?.trim();
+  const limit = Math.min(20, Math.max(1, Number(url.searchParams.get("limit") ?? 6)));
+
+  if (!q) {
+    return NextResponse.json({ results: [], error: "missing q" }, { status: 400 });
+  }
+
+  ensureGeminiEnv();
+  if (!process.env.GEMINI_API_KEY) {
+    return NextResponse.json(
+      { results: [], error: "GEMINI_API_KEY not configured" },
+      { status: 500 }
+    );
+  }
+
+  let index: IndexFile;
+  try {
+    index = await loadIndex();
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "index load failed";
+    return NextResponse.json(
+      { results: [], error: `${message} — run scripts/index_videos.py first` },
+      { status: 200 }
+    );
+  }
+
+  if (!index.entries.length) {
+    return NextResponse.json({ results: [], error: "index is empty" });
+  }
+
+  let queryVec: number[];
+  try {
+    queryVec = await embedQuery(q, process.env.GEMINI_API_KEY);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "embed failed";
+    return NextResponse.json({ results: [], error: message }, { status: 502 });
+  }
+
+  const ranked = index.entries
+    .map((entry) => ({
+      videoId: entry.videoId,
+      videoUrl: entry.videoUrl,
+      startSec: entry.startSec,
+      endSec: entry.endSec,
+      caption: entry.caption,
+      score: cosine(queryVec, entry.embedding),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+
+  return NextResponse.json({ query: q, results: ranked });
+}
