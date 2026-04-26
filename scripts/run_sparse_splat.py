@@ -65,15 +65,23 @@ def run_colmap(workspace: Path, images_dir: Path) -> Path:
         shutil.rmtree(sparse_dir)
     sparse_dir.mkdir(parents=True)
 
+    # Higher feature budget + lower peak threshold = many more SIFT keypoints
+    # per image, which translates into a denser sparse cloud after mapping.
     run([
         "colmap", "feature_extractor",
         "--database_path", str(db),
         "--image_path", str(images_dir),
         "--ImageReader.single_camera", "1",
         "--FeatureExtraction.use_gpu", "0",
+        "--SiftExtraction.max_num_features", "16384",
+        "--SiftExtraction.peak_threshold", "0.0033",
+        "--SiftExtraction.edge_threshold", "12",
     ])
+    # Exhaustive matching is feasible for the ~hundred-frame videos we feed
+    # this and produces far more loop closures than sequential, which the
+    # mapper can triangulate into additional points.
     run([
-        "colmap", "sequential_matcher",
+        "colmap", "exhaustive_matcher",
         "--database_path", str(db),
         "--FeatureMatching.use_gpu", "0",
     ])
@@ -82,6 +90,8 @@ def run_colmap(workspace: Path, images_dir: Path) -> Path:
         "--database_path", str(db),
         "--image_path", str(images_dir),
         "--output_path", str(sparse_dir),
+        "--Mapper.ba_global_max_num_iterations", "75",
+        "--Mapper.tri_min_angle", "1.0",
     ])
 
     # mapper writes one or more sub-models (0/, 1/, ...) — pick the largest.
