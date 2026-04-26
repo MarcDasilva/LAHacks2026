@@ -8,9 +8,47 @@ interface Props {
   flipUp?: boolean;
 }
 
-// Renders a 3D Gaussian Splat (.splat / antimatter15 format) using
-// @mkkellogg/gaussian-splats-3d. Loaded dynamically so it never ships in
-// the SSR bundle (the lib expects a DOM + WebGL2).
+// .splat layout (antimatter15): 32 bytes per gaussian
+//   pos:    3 × float32  (12 bytes)
+//   scale:  3 × float32  (12 bytes)
+//   rgba:   4 × uint8    (4 bytes)
+//   rot:    4 × uint8    (4 bytes)
+const SPLAT_STRIDE = 32;
+
+// Reads the position component of every gaussian to compute scene bounds.
+// COLMAP scenes have arbitrary world coordinates; without this the default
+// camera at [0,0,4] points at empty space.
+function computeSceneFraming(buf: ArrayBuffer): {
+  center: [number, number, number];
+  radius: number;
+} {
+  const n = Math.floor(buf.byteLength / SPLAT_STRIDE);
+  if (n === 0) return { center: [0, 0, 0], radius: 1 };
+  const view = new DataView(buf);
+  let cx = 0;
+  let cy = 0;
+  let cz = 0;
+  for (let i = 0; i < n; i++) {
+    const o = i * SPLAT_STRIDE;
+    cx += view.getFloat32(o, true);
+    cy += view.getFloat32(o + 4, true);
+    cz += view.getFloat32(o + 8, true);
+  }
+  cx /= n;
+  cy /= n;
+  cz /= n;
+  let maxD2 = 0;
+  for (let i = 0; i < n; i++) {
+    const o = i * SPLAT_STRIDE;
+    const dx = view.getFloat32(o, true) - cx;
+    const dy = view.getFloat32(o + 4, true) - cy;
+    const dz = view.getFloat32(o + 8, true) - cz;
+    const d2 = dx * dx + dy * dy + dz * dz;
+    if (d2 > maxD2) maxD2 = d2;
+  }
+  return { center: [cx, cy, cz], radius: Math.sqrt(maxD2) || 1 };
+}
+
 export function GaussianSplatViewer({ url, flipUp = false }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -20,11 +58,27 @@ export function GaussianSplatViewer({ url, flipUp = false }: Props) {
     const container = containerRef.current;
     if (!container) return;
     let disposed = false;
-    let viewer: { dispose: () => void; setRenderMode: (m: number) => void } | null =
-      null;
+    let viewer: { dispose: () => void } | null = null;
 
     (async () => {
       try {
+        // Fetch the splat ourselves first so we can frame the camera before
+        // mount. The viewer can load from a Uint8Array via addSplatScene's
+        // FileBufferType branch.
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) throw new Error(`splat ${res.status}`);
+        const buf = await res.arrayBuffer();
+        if (disposed) return;
+        const { center, radius } = computeSceneFraming(buf);
+        // Sit ~2.2× the bounding radius back along Z so the cloud fills the
+        // viewport. The viewer's OrbitControls handle zoom/rotate from here.
+        const dist = Math.max(radius * 2.2, 0.5);
+        const camPos: [number, number, number] = [
+          center[0],
+          center[1],
+          center[2] + dist,
+        ];
+
         const mod = await import("@mkkellogg/gaussian-splats-3d");
         if (disposed) return;
         const Viewer = (mod as { Viewer: new (opts: object) => unknown }).Viewer;
@@ -33,26 +87,20 @@ export function GaussianSplatViewer({ url, flipUp = false }: Props) {
           selfDrivenMode: true,
           useBuiltInControls: true,
           sharedMemoryForWorkers: false,
-          // Faster initial render at the cost of some visual fidelity.
           gpuAcceleratedSort: true,
           halfPrecisionCovariancesOnGPU: true,
           dynamicScene: false,
-          initialCameraPosition: [0, 0, 4],
-          initialCameraLookAt: [0, 0, 0],
-          ...(flipUp ? { sceneRevealMode: 1 } : {}),
+          initialCameraPosition: camPos,
+          initialCameraLookAt: center,
         }) as {
-          addSplatScene: (
-            url: string,
-            opts: object
-          ) => Promise<void>;
+          addSplatScene: (url: string | Uint8Array, opts: object) => Promise<void>;
           start: () => void;
           dispose: () => void;
-          setRenderMode: (m: number) => void;
         };
-        await v.addSplatScene(url, {
+        await v.addSplatScene(new Uint8Array(buf), {
+          format: 0, // 0 = .splat (antimatter15)
           rotation: flipUp ? [1, 0, 0, 0] : [0, 0, 0, 1],
           showLoadingUI: false,
-          progressiveLoad: true,
         });
         if (disposed) {
           v.dispose();

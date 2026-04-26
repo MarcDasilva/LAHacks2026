@@ -68,13 +68,24 @@ image = (
         "tyro",
         "viser",
         "nerfview",
+        "matplotlib",
+        "splines",
+        "jaxtyping",
+        "trimesh",
+        "splines",
         "pyyaml",
         "requests",
         "fastapi[standard]",
     )
-    # Vendor gsplat examples (simple_trainer + COLMAP dataloader).
+    # Vendor gsplat examples (simple_trainer + COLMAP dataloader) and install
+    # their full requirements file so we don't keep playing whack-a-mole with
+    # missing transitive deps from nerfview/etc.
     .run_commands(
         "git clone --depth 1 --branch v" + GSPLAT_VERSION + " https://github.com/nerfstudio-project/gsplat /opt/gsplat",
+        # gsplat's COLMAP dataloader expects rmbrualla's pycolmap fork
+        # (provides `from pycolmap import SceneManager`), not the
+        # colmap-project bindings package of the same name.
+        "pip install git+https://github.com/rmbrualla/pycolmap.git",
     )
 )
 
@@ -186,82 +197,69 @@ def _run_colmap(workspace: Path) -> None:
         raise RuntimeError("COLMAP failed to produce sparse/0/")
 
 
-def _train_gsplat(workspace: Path, result_dir: Path) -> Path:
-    """Run gsplat's simple_trainer; return path to the exported .ply."""
-    result_dir.mkdir(parents=True, exist_ok=True)
-    # gsplat 1.4 examples expect:
-    #   <data_dir>/images/        + <data_dir>/sparse/0/...
-    # which is exactly our workspace layout.
-    _run([
-        "python", "/opt/gsplat/examples/simple_trainer.py",
-        "default",
-        "--data_dir", str(workspace),
-        "--result_dir", str(result_dir),
-        "--max_steps", str(MAX_STEPS),
-        "--sh_degree", str(SH_DEGREE),
-        "--data_factor", "1",
-        "--disable_viewer",
-        "--save_ply",
-    ])
-    plys = sorted(result_dir.rglob("*.ply"))
-    if not plys:
-        raise RuntimeError("gsplat did not produce a .ply")
-    # Pick the largest (final) checkpoint .ply.
-    plys.sort(key=lambda p: p.stat().st_size, reverse=True)
-    return plys[0]
+def _colmap_points_to_splat(workspace: Path) -> bytes:
+    """Read COLMAP's sparse/<best>/points3D.bin and emit antimatter15 .splat
+    bytes (32 bytes per gaussian). Each sparse point becomes a small
+    isotropic gaussian — not photoreal like a trained 3DGS, but renders fine
+    in the splat viewer and avoids the gsplat training pipeline entirely."""
+    import struct as _struct
 
-
-def _ply_to_splat(ply_path: Path) -> bytes:
-    """Convert an Inria/gsplat .ply (with f_dc_*, scale_*, rot_*, opacity)
-    into the antimatter15 .splat binary format (32 bytes per gaussian)."""
     import numpy as np
-    from plyfile import PlyData
 
-    SH_C0 = 0.28209479177387814
+    sparse_dir = workspace / "sparse"
+    candidates = [p / "points3D.bin" for p in sorted(sparse_dir.iterdir()) if p.is_dir()]
+    candidates = [p for p in candidates if p.exists()]
+    if not candidates:
+        raise RuntimeError("no points3D.bin found in COLMAP sparse output")
+    points_path = max(candidates, key=lambda p: p.stat().st_size)
 
-    ply = PlyData.read(str(ply_path))
-    v = ply["vertex"]
-    xyz = np.stack([v["x"], v["y"], v["z"]], axis=1).astype(np.float32)
-    scales = np.stack([v["scale_0"], v["scale_1"], v["scale_2"]], axis=1).astype(np.float32)
-    # gsplat stores rotation as (rot_0..rot_3) = (w, x, y, z).
-    rots = np.stack([v["rot_0"], v["rot_1"], v["rot_2"], v["rot_3"]], axis=1).astype(np.float32)
-    opacities = np.array(v["opacity"], dtype=np.float32)
-    # SH degree-0 dc terms → base color.
-    f_dc = np.stack([v["f_dc_0"], v["f_dc_1"], v["f_dc_2"]], axis=1).astype(np.float32)
+    pts: list[tuple[float, float, float]] = []
+    rgbs: list[tuple[int, int, int]] = []
+    with points_path.open("rb") as f:
+        (num_points,) = _struct.unpack("<Q", f.read(8))
+        for _ in range(num_points):
+            f.read(8)  # point3D_id (u64)
+            x, y, z = _struct.unpack("<3d", f.read(24))
+            r, g, b = _struct.unpack("<3B", f.read(3))
+            f.read(8)  # error (f64)
+            (track_len,) = _struct.unpack("<Q", f.read(8))
+            f.read(track_len * 8)  # tracks
+            pts.append((x, y, z))
+            rgbs.append((r, g, b))
 
-    rgb = np.clip(0.5 + SH_C0 * f_dc, 0.0, 1.0)
-    opacity = 1.0 / (1.0 + np.exp(-opacities))
-    rgba = np.concatenate([rgb, opacity[:, None]], axis=1)
-    rgba_u8 = (rgba * 255.0).clip(0, 255).astype(np.uint8)
+    if not pts:
+        raise RuntimeError("COLMAP reconstructed zero points")
 
-    scales_exp = np.exp(scales).astype(np.float32)
+    xyz = np.array(pts, dtype=np.float32)
+    rgb = np.array(rgbs, dtype=np.uint8)
 
-    rots_norm = rots / np.linalg.norm(rots, axis=1, keepdims=True).clip(min=1e-8)
-    rot_u8 = ((rots_norm * 128.0) + 128.0).clip(0, 255).astype(np.uint8)
-
-    importance = opacity * scales_exp.prod(axis=1)
-    order = np.argsort(-importance)
-    xyz, scales_exp, rgba_u8, rot_u8 = (
-        xyz[order], scales_exp[order], rgba_u8[order], rot_u8[order],
-    )
+    centroid = np.median(xyz, axis=0)
+    extent = float(np.median(np.linalg.norm(xyz - centroid, axis=1))) or 1.0
+    splat_size = extent * 0.004
 
     n = xyz.shape[0]
+    scales = np.full((n, 3), splat_size, dtype=np.float32)
+    alpha = np.full((n, 1), 255, dtype=np.uint8)
+    rgba_u8 = np.concatenate([rgb, alpha], axis=1)
+    # Identity quaternion (w=1, xyz=0). .splat stores rot as
+    # uint8(rot * 128 + 128); identity → (255, 128, 128, 128).
+    rot_u8 = np.tile(np.array([255, 128, 128, 128], dtype=np.uint8), (n, 1))
+
     buf = io.BytesIO()
     for i in range(n):
         buf.write(xyz[i].tobytes())
-        buf.write(scales_exp[i].tobytes())
+        buf.write(scales[i].tobytes())
         buf.write(rgba_u8[i].tobytes())
         buf.write(rot_u8[i].tobytes())
-    print(f"wrote {n} gaussians ({buf.tell()} bytes)", flush=True)
+    print(f"wrote {n} points as .splat ({buf.tell()} bytes)", flush=True)
     return buf.getvalue()
 
 
 # ── Modal function ────────────────────────────────────────────────────────
 
 @app.function(
-    gpu="A100",
+    # No GPU — we dropped 3DGS training; the COLMAP step uses CPU SIFT.
     timeout=900,
-    # Keep one container warm during a demo to skip cold-start.
     min_containers=0,
 )
 def train_splat(video_url: str) -> bytes:
@@ -278,10 +276,7 @@ def train_splat(video_url: str) -> bytes:
             raise RuntimeError(f"only {n} frames extracted; need ≥8")
 
         _run_colmap(workdir)
-
-        result_dir = workdir / "gsplat_out"
-        ply = _train_gsplat(workdir, result_dir)
-        return _ply_to_splat(ply)
+        return _colmap_points_to_splat(workdir)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
