@@ -135,7 +135,9 @@ export function PointCloudViewer({
         if (d > maxExtent) maxExtent = d;
       }
       const center = new THREE.Vector3(cx, cy, cz);
-      const radius = maxExtent * 1.6;
+      // Closer initial framing — sit just outside the cloud rather than
+      // 1.6× away, so the environment fills the viewport on first paint.
+      const radius = maxExtent * 0.85;
 
       const camera = new THREE.PerspectiveCamera(55, w / h, maxExtent * 0.01, maxExtent * 10);
 
@@ -198,7 +200,7 @@ export function PointCloudViewer({
               const tubeGeom = new THREE.TubeGeometry(
                 curve,
                 Math.max(64, pts.length * 4),
-                maxExtent * 0.012,
+                maxExtent * 0.004,
                 10,
                 false
               );
