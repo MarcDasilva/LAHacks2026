@@ -15,13 +15,14 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
-from . import cloud_export, config, sessions
+from . import cloud_export, config, sessions, viser_server
 
 app = FastAPI(title="lingbot_bridge ingest")
 
@@ -43,6 +44,10 @@ def _validate_session_id(session_id: str) -> None:
 @app.on_event("startup")
 def _startup() -> None:
     config.ensure_dirs()
+    # viser lives in this process — the inference runner pushes points by
+    # POSTing to /sessions/{id}/replay rather than holding its own server.
+    # Keeps a single source of truth for scene state.
+    viser_server.start()
 
 
 @app.get("/health")
@@ -192,6 +197,59 @@ def get_cloud(
         raise HTTPException(404, str(e))
 
     return Response(content=blob, media_type="application/octet-stream")
+
+
+_replay_lock = threading.Lock()
+_replay_inflight: set[str] = set()
+
+
+def _do_replay(session_id: str) -> None:
+    try:
+        viser_server.replay_session(
+            session_id, config.session_output_dir(session_id)
+        )
+    except Exception:
+        # log goes to uvicorn's stderr; we don't want a background failure
+        # to mask itself.
+        import logging
+
+        logging.getLogger("ingest_server").exception(
+            "replay failed for session %s", session_id
+        )
+    finally:
+        with _replay_lock:
+            _replay_inflight.discard(session_id)
+
+
+@app.post("/sessions/{session_id}/replay")
+def replay(session_id: str, background: BackgroundTasks) -> dict:
+    """Push an already-reconstructed session's points into the viser scene.
+
+    Idempotent in the sense that re-calling clears the existing per-frame
+    nodes for this session before re-pushing. Replay runs in the background
+    because it can take seconds for large sessions; status is returned
+    immediately.
+    """
+    _validate_session_id(session_id)
+    state = sessions.load(session_id)
+    if state is None:
+        raise HTTPException(404, "no such session")
+    if state.status != "done":
+        raise HTTPException(409, f"session is {state.status}, not done")
+    if not viser_server.is_running():
+        raise HTTPException(503, "viser server not running")
+
+    out_dir = config.session_output_dir(session_id)
+    if not (out_dir / "predictions.pt").exists():
+        raise HTTPException(404, "no predictions.pt for this session")
+
+    with _replay_lock:
+        if session_id in _replay_inflight:
+            return {"ok": True, "queued": False, "reason": "already replaying"}
+        _replay_inflight.add(session_id)
+
+    background.add_task(_do_replay, session_id)
+    return {"ok": True, "queued": True}
 
 
 @app.get("/sessions/{session_id}/frustums")

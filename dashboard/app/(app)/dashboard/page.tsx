@@ -4,12 +4,22 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import CameraBentoBoard from "@/app/components/CameraBentoBoard";
 import { PointCloudViewer } from "../../components/ui/PointCloudViewer";
+import { ViserEmbed } from "../../components/ui/ViserEmbed";
 import { UploadButton } from "../../components/ui/UploadButton";
 import { SessionSwitcher } from "../../components/ui/SessionSwitcher";
 
 const BRIDGE_URL =
-  process.env.NEXT_PUBLIC_BRIDGE_URL ?? "https://6v8yblgimbpc77-8888.proxy.runpod.net";
-const DEMO_SESSION = process.env.NEXT_PUBLIC_DEMO_SESSION ?? "church4";
+  process.env.NEXT_PUBLIC_BRIDGE_URL ?? "https://p3ec8wnxra9xax-8888.proxy.runpod.net";
+const VISER_URL = process.env.NEXT_PUBLIC_VISER_URL ?? "";
+const USE_VISER = process.env.NEXT_PUBLIC_USE_VISER === "1" && VISER_URL !== "";
+
+type Mode = "stream" | "church" | "oxford";
+
+const MODES: Array<{ id: Mode; label: string; videoSrc?: string }> = [
+  { id: "stream", label: "Stream" },
+  { id: "church", label: "Church", videoSrc: "/demos/church.mp4" },
+  { id: "oxford", label: "Oxford", videoSrc: "/demos/oxford.mp4" },
+];
 
 export default function Dashboard() {
   const router = useRouter();
@@ -55,7 +65,16 @@ export default function Dashboard() {
       window.clearTimeout(doneTimer);
     };
   }, [shouldBoot, router]);
-  const [sessionId, setSessionId] = useState(DEMO_SESSION);
+  const [mode, setMode] = useState<Mode>("stream");
+  const [streamSessionId, setStreamSessionId] = useState<string>("");
+
+  const sessionId = mode === "stream" ? streamSessionId : mode;
+  const videoSrc = MODES.find(m => m.id === mode)?.videoSrc;
+
+  const handleStreamSessionChange = (sid: string) => {
+    setMode("stream");
+    setStreamSessionId(sid);
+  };
 
   return (
     <div className="relative h-full w-full overflow-hidden">
@@ -98,10 +117,14 @@ export default function Dashboard() {
       >
         <div className="w-full h-full grid grid-cols-[1fr_2fr] gap-2">
 
-          {/* ── Left: live body cam feed ── */}
+          {/* ── Left: live body cam feed OR demo video ── */}
           <Panel className="row-span-full flex flex-col min-h-0">
-            <div className="flex-1 overflow-hidden relative min-h-0">
-              <CameraBentoBoard />
+            <div className="flex-1 overflow-hidden relative min-h-0 rounded-[14px]">
+              {mode === "stream" ? (
+                <CameraBentoBoard />
+              ) : (
+                <DemoVideo key={mode} src={videoSrc!} label={mode} />
+              )}
             </div>
           </Panel>
 
@@ -110,8 +133,13 @@ export default function Dashboard() {
 
             {/* Top: 3D splatting render */}
             <Panel className="flex flex-col min-h-0">
-              <div className="flex-1 overflow-hidden relative min-h-0">
-                <RenderPanel sessionId={sessionId} setSessionId={setSessionId} />
+              <div className="flex-1 overflow-hidden relative min-h-0 rounded-[14px]">
+                <RenderPanel
+                  mode={mode}
+                  setMode={setMode}
+                  sessionId={sessionId}
+                  onStreamSessionChange={handleStreamSessionChange}
+                />
               </div>
             </Panel>
 
@@ -171,24 +199,68 @@ function Panel({ children, className = "" }: { children: React.ReactNode; classN
   );
 }
 
-function RenderPanel({ sessionId, setSessionId }: { sessionId: string; setSessionId: (sid: string) => void }) {
+function RenderPanel({
+  mode,
+  setMode,
+  sessionId,
+  onStreamSessionChange,
+}: {
+  mode: Mode;
+  setMode: (m: Mode) => void;
+  sessionId: string;
+  onStreamSessionChange: (sid: string) => void;
+}) {
+  const hasSession = sessionId.length > 0;
   return (
     <div className="relative h-full w-full">
-      {/* `key` forces a clean Three.js remount whenever the session changes */}
-      <PointCloudViewer
-        key={sessionId}
-        bridgeUrl={BRIDGE_URL}
-        sessionId={sessionId}
-        conf={2.0}
-        downsample={5}
-      />
-      <div className="absolute top-3 left-3 z-10 flex gap-2">
-        <UploadButton bridgeUrl={BRIDGE_URL} onReady={setSessionId} />
+      {hasSession ? (
+        USE_VISER ? (
+          // viser stays mounted across session switches — the scene swap
+          // is server-side via /sessions/{id}/replay (clears every other
+          // session, then pushes this one). Avoids WS flicker.
+          <ViserEmbed
+            viserUrl={VISER_URL}
+            sessionId={sessionId}
+            bridgeUrl={BRIDGE_URL}
+          />
+        ) : (
+          <PointCloudViewer
+            key={sessionId}
+            bridgeUrl={BRIDGE_URL}
+            sessionId={sessionId}
+            conf={2.0}
+            downsample={5}
+          />
+        )
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center text-xs text-[var(--muted-foreground)] font-mono">
+          waiting for stream — upload a clip or pick a session
+        </div>
+      )}
+      <div className="absolute top-3 left-3 z-10 flex items-center gap-2">
+        <div className="flex gap-1 bg-[var(--muted)] rounded-[8px] p-1">
+          {MODES.map(m => {
+            const active = mode === m.id;
+            return (
+              <button
+                key={m.id}
+                onClick={() => setMode(m.id)}
+                className={`px-3 py-1 text-xs font-mono rounded-[6px] transition-colors ${
+                  active
+                    ? "bg-[var(--foreground)] text-[var(--background)]"
+                    : "text-[var(--foreground)] hover:bg-[var(--border)]"
+                }`}
+              >
+                {m.label}
+              </button>
+            );
+          })}
+        </div>
+        <UploadButton bridgeUrl={BRIDGE_URL} onReady={onStreamSessionChange} />
         <SessionSwitcher
           bridgeUrl={BRIDGE_URL}
           current={sessionId}
-          onSelect={setSessionId}
-          alwaysInclude={DEMO_SESSION}
+          onSelect={onStreamSessionChange}
         />
       </div>
     </div>
@@ -247,6 +319,25 @@ function VideoChunk({
       <span className="text-[9px] text-[var(--muted-foreground)] font-display">
         clip_{String(index + 1).padStart(2, "0")}
       </span>
+    </div>
+  );
+}
+
+function DemoVideo({ src, label }: { src: string; label: string }) {
+  return (
+    <div className="relative h-full w-full bg-black">
+      <video
+        className="absolute inset-0 h-full w-full object-cover"
+        src={src}
+        autoPlay
+        loop
+        muted
+        controls
+        playsInline
+      />
+      <div className="absolute left-3 top-3 z-10 rounded-[8px] bg-black/45 px-2 py-1 text-[10px] font-mono uppercase tracking-widest text-white/90 backdrop-blur-sm">
+        {label}
+      </div>
     </div>
   );
 }
