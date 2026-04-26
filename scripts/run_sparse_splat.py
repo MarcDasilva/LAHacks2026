@@ -28,6 +28,7 @@ DEFAULT_WORKSPACE = REPO_ROOT / "assets/output"
 DEFAULT_LBMP_OUT = REPO_ROOT / "dashboard/public/clouds/sparse.lbmp"
 DEFAULT_URL_JSON = REPO_ROOT / "dashboard/public/clouds/sparse.url.json"
 DEFAULT_VIDEO_URL_JSON = REPO_ROOT / "dashboard/public/clouds/video.url.json"
+DEFAULT_LOCAL_VIDEO = REPO_ROOT / "dashboard/public/clouds/video.mp4"
 DEFAULT_ENV_FILE = REPO_ROOT / ".env"
 
 LBMP_MAGIC = 0x4C424D50
@@ -173,6 +174,8 @@ def main() -> int:
                     help="cloudinary public_id for the source video upload")
     ap.add_argument("--video-url-json", type=Path, default=DEFAULT_VIDEO_URL_JSON,
                     help="where to write the cloudinary video URL pointer JSON")
+    ap.add_argument("--local-video-out", type=Path, default=DEFAULT_LOCAL_VIDEO,
+                    help="copy of the source video served locally by Next.js (default consumer source)")
     ap.add_argument("--skip-upload", action="store_true", help="don't push the LBMP to cloudinary")
     ap.add_argument("--skip-video-upload", action="store_true", help="don't push the source video to cloudinary")
     ap.add_argument("--fps", type=float, default=2.0, help="frames per second to sample from video")
@@ -226,15 +229,29 @@ def main() -> int:
         else:
             print("dashboard will fall back to the local /clouds/sparse.lbmp")
 
-    if not args.skip_video_upload and args.video.exists():
-        video_url = upload_to_cloudinary(args.video, args.video_public_id, "video")
-        if video_url:
-            args.video_url_json.parent.mkdir(parents=True, exist_ok=True)
-            args.video_url_json.write_text(
-                json.dumps({"url": video_url, "localPath": str(args.video.relative_to(REPO_ROOT))}, indent=2) + "\n"
-            )
-            print(f"uploaded video → {video_url}")
-            print(f"wrote video URL pointer → {args.video_url_json}")
+    if args.video.exists():
+        # Local-default: copy the source video into Next.js public/ so the
+        # dashboard serves it without hitting the network. The copy is
+        # gitignored — production falls back to the cloudinary URL.
+        args.local_video_out.parent.mkdir(parents=True, exist_ok=True)
+        if not args.local_video_out.exists() or args.local_video_out.stat().st_size != args.video.stat().st_size:
+            shutil.copy2(args.video, args.local_video_out)
+            print(f"copied local video → {args.local_video_out} ({args.local_video_out.stat().st_size:,} bytes)")
+        else:
+            print(f"local video already present at {args.local_video_out}")
+
+        if not args.skip_video_upload:
+            video_url = upload_to_cloudinary(args.video, args.video_public_id, "video")
+            if video_url:
+                args.video_url_json.parent.mkdir(parents=True, exist_ok=True)
+                args.video_url_json.write_text(
+                    json.dumps(
+                        {"url": video_url, "localUrl": "/clouds/video.mp4"},
+                        indent=2,
+                    ) + "\n"
+                )
+                print(f"uploaded video → {video_url}")
+                print(f"wrote video URL pointer → {args.video_url_json}")
 
     return 0
 

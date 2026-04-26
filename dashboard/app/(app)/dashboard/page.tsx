@@ -191,39 +191,37 @@ export default function Dashboard() {
 
           <div className="mt-3 flex min-h-0 flex-1 flex-col gap-3">
             <section className="pointer-events-auto min-h-0 overflow-auto">
-              {activeRooms.length > 0 ? (
-                <div className="flex min-h-full flex-col gap-3 lg:flex-row">
-                  {selectedRoom ? (
-                    <SelectedCameraPanel room={selectedRoom} />
-                  ) : null}
-
-                  <SparseSplatPanel
-                    localUrl="/clouds/sparse.lbmp"
-                    pointerUrl="/clouds/sparse.url.json"
+              <div className="flex min-h-full flex-col gap-3 lg:flex-row">
+                {activeRooms.length > 0 ? (
+                  selectedRoom ? <SelectedCameraPanel room={selectedRoom} /> : null
+                ) : (
+                  <EmptyCameraPreview
+                    title={fetchState === "error" ? "Signal relay unavailable" : "No connected cameras"}
+                    description={
+                      fetchState === "error"
+                        ? "The dashboard could not reach the frame relay server."
+                        : "As soon as a building connection has live camera senders, they will appear here."
+                    }
                   />
+                )}
 
-                  {previewRooms.length > 0 ? (
-                    <div className="flex min-h-0 w-full shrink-0 gap-3 overflow-x-auto lg:flex-1 lg:flex-col lg:overflow-y-auto lg:overflow-x-hidden">
-                      {previewRooms.map((room) => (
-                        <CameraPreviewThumb
-                          key={room.roomId}
-                          room={room}
-                          onSelect={() => setSelectedRoomId(room.roomId)}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              ) : (
-                <EmptyCameraPreview
-                  title={fetchState === "error" ? "Signal relay unavailable" : "No connected cameras"}
-                  description={
-                    fetchState === "error"
-                      ? "The dashboard could not reach the frame relay server."
-                      : "As soon as a building connection has live camera senders, they will appear here."
-                  }
+                <SparseSplatPanel
+                  localUrl="/clouds/sparse.lbmp"
+                  pointerUrl="/clouds/sparse.url.json"
                 />
-              )}
+
+                {previewRooms.length > 0 ? (
+                  <div className="flex min-h-0 w-full shrink-0 gap-3 overflow-x-auto lg:flex-1 lg:flex-col lg:overflow-y-auto lg:overflow-x-hidden">
+                    {previewRooms.map((room) => (
+                      <CameraPreviewThumb
+                        key={room.roomId}
+                        room={room}
+                        onSelect={() => setSelectedRoomId(room.roomId)}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             </section>
           </div>
         </main>
