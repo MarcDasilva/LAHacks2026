@@ -125,9 +125,15 @@ function RenderPanel({
   return (
     <div className="relative h-full w-full">
       {hasSession ? (
-        // `key` forces a clean remount whenever the session changes
         USE_VISER ? (
-          <ViserEmbed key={sessionId} viserUrl={VISER_URL} sessionId={sessionId} />
+          // viser stays mounted across session switches — the scene swap
+          // is server-side via /sessions/{id}/replay (clears every other
+          // session, then pushes this one). Avoids WS flicker.
+          <ViserEmbed
+            viserUrl={VISER_URL}
+            sessionId={sessionId}
+            bridgeUrl={BRIDGE_URL}
+          />
         ) : (
           <PointCloudViewer
             key={sessionId}
