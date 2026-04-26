@@ -155,6 +155,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     let cancelled = false;
+    let timeoutId: number | null = null;
+    let consecutiveFailures = 0;
     const baseUrl = getDefaultFrameStreamHttpUrl();
 
     const loadRooms = async () => {
@@ -169,18 +171,26 @@ export default function Dashboard() {
 
         setRooms(Array.isArray(payload.rooms) ? payload.rooms : []);
         setFetchState("ready");
+        consecutiveFailures = 0;
       } catch {
         if (cancelled) return;
         setFetchState("error");
+        consecutiveFailures += 1;
+      } finally {
+        if (cancelled) return;
+        // Healthy: poll fast. After three failures back off to 30s so the
+        // browser console isn't flooded with ERR_CONNECTION_REFUSED when
+        // the relay isn't running locally.
+        const delay = consecutiveFailures >= 3 ? 30_000 : 1500;
+        timeoutId = window.setTimeout(loadRooms, delay);
       }
     };
 
     loadRooms();
-    const intervalId = window.setInterval(loadRooms, 1500);
 
     return () => {
       cancelled = true;
-      window.clearInterval(intervalId);
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
     };
   }, []);
 
