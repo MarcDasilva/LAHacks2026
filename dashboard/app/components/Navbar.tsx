@@ -1,11 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { LayoutDashboard, Bell, BarChart2, FileText, Camera } from "lucide-react";
+import { LayoutDashboard, Bell, BarChart2, FileText } from "lucide-react";
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
-  { icon: Camera,          label: "Camera",    href: "/camera" },
   { icon: Bell,            label: "Alerts",    href: "/alerts" },
   { icon: BarChart2,       label: "Analytics", href: "#" },
   { icon: FileText,        label: "Reports",   href: "#" },
